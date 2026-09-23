@@ -7,17 +7,20 @@ const twoFactor = require('../services/twoFactorService');
 const {
   ensureCsrfToken,
   hasValidCsrfToken,
+  createAuthFingerprint,
+  hasMatchingAuthFingerprint,
   isDevelopmentPasswordLoginEnabled,
   createRequireAuth,
   destroySession
 } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const { createAdminRouter } = require('./admin');
 
 const credentialError = 'Invalid email or password.';
 // Fixed cost-12 hash for timing equalization; no account uses its discarded random source value.
 const DUMMY_PASSWORD_HASH = '$2b$12$2GN3Hm/rogpWV12Ve9rA..0pPmX1b0nzDXo16QFiqYwSNc/bRiMb2';
 const dashboardViews = {
-  database_admin: { path: '/dashboard/database-admin', view: 'dashboards/database-admin', title: 'Database Admin Dashboard' },
+  database_admin: { path: '/admin', view: 'dashboards/database-admin', title: 'Database Admin Dashboard' },
   registrar: { path: '/dashboard/registrar', view: 'dashboards/registrar', title: 'Registrar Dashboard' },
   finance: { path: '/dashboard/finance', view: 'dashboards/finance', title: 'Finance Dashboard' },
   student: { path: '/dashboard/student', view: 'dashboards/student', title: 'Student Dashboard' }
@@ -38,7 +41,7 @@ async function verifyPassword(user, password, comparePassword = bcrypt.compare) 
   return Boolean(active && passwordMatches);
 }
 
-function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor } = {}) {
+function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth({ getPool, sql, environment });
   const loginLimiter = rateLimit({
@@ -101,6 +104,8 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     return { allowed: true, codeId: challenge.codeId };
   };
 
+  router.use('/admin', requireAuth, requireRole('database_admin'), createAdminRouter({ getPool, sql, adminService }));
+
   router.get('/', (req, res) => {
     res.render('home', { title: 'ARKTIESIIS' });
   });
@@ -141,7 +146,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       const pool = await getPool();
       const result = await pool.request()
         .input('email', sql.NVarChar(255), credentials.email)
-        .query('SELECT id, email, password_hash, role, is_active FROM dbo.users WHERE email = @email');
+        .query('SELECT id, email, password_hash, role, is_active, CONVERT(NVARCHAR(33), updated_at, 126) AS updated_at_fingerprint FROM dbo.users WHERE email = @email');
       const user = result.recordset?.[0];
       const passwordMatches = await verifyPassword(user, credentials.password);
 
@@ -153,6 +158,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
         await regenerateSession(req);
         req.session.userId = user.id;
         req.session.authLevel = 'password_only_dev';
+        req.session.authFingerprint = createAuthFingerprint(user, environment);
         await saveSession(req);
         return res.redirect(303, '/dashboard');
       }
@@ -166,6 +172,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       req.session.pendingUserId = user.id;
       req.session.pendingOtpId = challenge.codeId;
       req.session.authLevel = 'pending_2fa';
+      req.session.pendingAuthFingerprint = createAuthFingerprint(user, environment);
       req.session.cookie.maxAge = twoFactorService.OTP_TTL_MINUTES * 60 * 1000;
       await saveSession(req);
       return res.redirect(303, '/login/verify');
@@ -184,6 +191,9 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     try {
       const user = await twoFactorService.getActiveUser({ getPool, sql, userId });
       if (!user || !(user.is_active === true || user.is_active === 1)) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
+      if (!hasMatchingAuthFingerprint(createAuthFingerprint(user, environment), req.session.pendingAuthFingerprint)) {
         return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
       }
       return renderVerification(req, res);
@@ -210,6 +220,9 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       if (!user || !(user.is_active === true || user.is_active === 1)) {
         return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
       }
+      if (!hasMatchingAuthFingerprint(createAuthFingerprint(user, environment), req.session.pendingAuthFingerprint)) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
 
       const challenge = await twoFactorService.getOtpChallenge({ getPool, sql, userId, codeId });
       if (!challenge) return renderVerification(req, res, 'This code is invalid or has expired. Request a new code.', 401);
@@ -227,6 +240,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       await regenerateSession(req);
       req.session.userId = user.id;
       req.session.authLevel = 'email_2fa';
+      req.session.authFingerprint = createAuthFingerprint(user, environment);
       await saveSession(req);
       return res.redirect(303, '/dashboard');
     } catch {
@@ -245,6 +259,9 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     try {
       const user = await twoFactorService.getActiveUser({ getPool, sql, userId });
       if (!user || !(user.is_active === true || user.is_active === 1)) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
+      if (!hasMatchingAuthFingerprint(createAuthFingerprint(user, environment), req.session.pendingAuthFingerprint)) {
         return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
       }
 
@@ -284,7 +301,10 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     return res.redirect(303, dashboard.path);
   });
 
+  router.get('/dashboard/database-admin', requireAuth, requireRole('database_admin'), (req, res) => res.redirect(303, '/admin'));
+
   for (const [role, dashboard] of Object.entries(dashboardViews)) {
+    if (role === 'database_admin') continue;
     router.get(dashboard.path, requireAuth, requireRole(role), (req, res) => {
       res.render(dashboard.view, {
         title: dashboard.title,

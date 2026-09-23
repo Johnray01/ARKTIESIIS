@@ -1,0 +1,89 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page admin-page" id="main-content">
+  <section class="dashboard-heading">
+    <div>
+      <h1>Manage user account</h1>
+      <p>Account #<%= user.id %><% if (user.created_at) { %> · Created <%= new Date(user.created_at).toLocaleDateString() %><% } %></p>
+    </div>
+    <a class="button button--secondary" href="/admin">Back to administration</a>
+  </section>
+
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+  <% if (currentUserId === user.id) { %><p class="form-success" role="status">Changing your email address or password signs out this session. Sign in again with the updated credentials.</p><% } %>
+
+  <section class="admin-form-section" aria-labelledby="account-settings-title">
+    <h2 id="account-settings-title">Account settings</h2>
+    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="admin-form-grid">
+        <div class="field">
+          <label for="email">Email address</label>
+          <input id="email" name="email" type="email" maxlength="255" autocomplete="email" required value="<%= user.email || '' %>">
+        </div>
+        <div class="field">
+          <label for="role">Role</label>
+          <select id="role" name="role" required>
+            <% for (const role of ['database_admin', 'registrar', 'finance', 'student']) { %>
+              <option value="<%= role %>" <%= user.role === role ? 'selected' : '' %>><%= role.replaceAll('_', ' ') %></option>
+            <% } %>
+          </select>
+        </div>
+      </div>
+      <fieldset class="admin-fieldset">
+        <legend>Profile information</legend>
+        <p class="field-help">Staff roles use the name and department below. Student roles must be linked to an existing student number. Changing between student and staff keeps the student record itself and its academic history.</p>
+        <div class="admin-form-grid">
+          <div class="field">
+            <label for="first-name">First name (staff)</label>
+            <input id="first-name" name="firstName" type="text" maxlength="100" autocomplete="given-name" value="<%= user.first_name || '' %>">
+          </div>
+          <div class="field">
+            <label for="last-name">Last name (staff)</label>
+            <input id="last-name" name="lastName" type="text" maxlength="100" autocomplete="family-name" value="<%= user.last_name || '' %>">
+          </div>
+          <div class="field">
+            <label for="department">Department (staff, optional)</label>
+            <input id="department" name="department" type="text" maxlength="100" value="<%= user.department || '' %>">
+          </div>
+          <div class="field">
+            <label for="student-number">Student number</label>
+            <input id="student-number" name="studentNo" type="text" maxlength="50" value="<%= user.student_no || '' %>">
+            <% if (user.student_no) { %>
+              <span class="field-help">Linked student: <%= [user.student_first_name, user.student_middle_name, user.student_last_name, user.student_suffix].filter(Boolean).join(' ') %></span>
+            <% } %>
+          </div>
+        </div>
+      </fieldset>
+      <label class="checkbox-field" for="is-active">
+        <input id="is-active" name="isActive" type="checkbox" value="1" <%= user.is_active ? 'checked' : '' %>>
+        <span><strong>Active account</strong><span class="field-help">Inactive accounts cannot sign in. At least one active database administrator must remain.</span></span>
+      </label>
+      <div class="admin-form-actions">
+        <button class="button button--primary" type="submit">Save account</button>
+        <a class="button button--secondary" href="/admin">Cancel</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="admin-form-section" aria-labelledby="password-reset-title">
+    <h2 id="password-reset-title">Reset password</h2>
+    <p>Set a new password for this account. Pending email sign-in codes will be invalidated.</p>
+    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>/password">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="admin-form-grid">
+        <div class="field">
+          <label for="new-password">New password</label>
+          <input id="new-password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="new-password-help">
+          <span id="new-password-help" class="field-help">Use 12 to 72 UTF-8 bytes.</span>
+        </div>
+        <div class="field">
+          <label for="confirm-password">Confirm new password</label>
+          <input id="confirm-password" name="confirmPassword" type="password" minlength="12" maxlength="72" autocomplete="new-password" required>
+        </div>
+      </div>
+      <button class="button button--secondary button--align-start" type="submit">Reset password</button>
+    </form>
+  </section>
+</main>
+<%- include('../partials/foot') %>

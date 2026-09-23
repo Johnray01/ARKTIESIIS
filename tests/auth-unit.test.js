@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { PassThrough, Writable } = require('node:stream');
 const { readHidden } = require('../scripts/bootstrap-admin');
 const { verifyPassword } = require('../src/routes');
-const { isDevelopmentPasswordLoginEnabled } = require('../src/middleware/auth');
+const { isDevelopmentPasswordLoginEnabled, createAuthFingerprint, hasMatchingAuthFingerprint } = require('../src/middleware/auth');
 const twoFactor = require('../src/services/twoFactorService');
 
 test('password-only authentication requires both development gate settings', () => {
@@ -11,6 +11,20 @@ test('password-only authentication requires both development gate settings', () 
   assert.equal(isDevelopmentPasswordLoginEnabled({ nodeEnv: 'development', devPasswordOnlyLogin: false }), false);
   assert.equal(isDevelopmentPasswordLoginEnabled({ nodeEnv: 'production', devPasswordOnlyLogin: true }), false);
   assert.equal(isDevelopmentPasswordLoginEnabled({ nodeEnv: 'test', devPasswordOnlyLogin: true }), false);
+});
+
+test('auth fingerprints change with role, password hash, or account update timestamp', () => {
+  const environment = { sessionSecret: 'auth-fingerprint-test-secret' };
+  const user = { role: 'registrar', password_hash: 'bcrypt-hash-a', updated_at_fingerprint: '2026-09-23T01:02:03.0000000' };
+  const fingerprint = createAuthFingerprint(user, environment);
+
+  assert.match(fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(hasMatchingAuthFingerprint(createAuthFingerprint({ ...user }, environment), fingerprint), true);
+  assert.equal(hasMatchingAuthFingerprint(createAuthFingerprint({ ...user, role: 'database_admin' }, environment), fingerprint), false);
+  assert.equal(hasMatchingAuthFingerprint(createAuthFingerprint({ ...user, password_hash: 'bcrypt-hash-b' }, environment), fingerprint), false);
+  assert.equal(hasMatchingAuthFingerprint(createAuthFingerprint({ ...user, updated_at_fingerprint: '2026-09-23T01:02:04.0000000' }, environment), fingerprint), false);
+  assert.equal(createAuthFingerprint({ role: 'registrar' }, environment), null);
+  assert.equal(hasMatchingAuthFingerprint(null, fingerprint), false);
 });
 
 test('missing and inactive accounts each perform one dummy bcrypt comparison', async () => {

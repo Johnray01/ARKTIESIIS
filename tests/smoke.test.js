@@ -47,7 +47,14 @@ function createAuthDatabase(userRows) {
             }
             if (statement.includes('WHERE id = @userId')) {
               const user = userRows.find((row) => row.id === values.userId);
-              return { recordset: user ? [{ id: user.id, email: user.email, role: user.role, is_active: user.is_active }] : [] };
+              return { recordset: user ? [{
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                is_active: user.is_active,
+                password_hash: user.password_hash,
+                updated_at_fingerprint: user.updated_at_fingerprint || ''
+              }] : [] };
             }
             throw new Error(`Unexpected SQL in auth test: ${statement}`);
           }
@@ -133,7 +140,14 @@ function createTestTwoFactorService(user, { failDelivery = false, failDeliveryAt
       if (challenge) challenge.consumed = true;
     },
     async getActiveUser({ userId }) {
-      return user.id === userId ? { id: user.id, email: user.email, is_active: user.is_active } : null;
+      return user.id === userId ? {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        password_hash: user.password_hash,
+        is_active: user.is_active,
+        updated_at_fingerprint: user.updated_at_fingerprint || ''
+      } : null;
     },
     async getOtpChallenge({ userId, codeId }) {
       if (user.id !== userId) return null;
@@ -367,6 +381,24 @@ test('non-development login requires OTP even when the development bypass flag i
     });
     assert.equal(dashboardAfterOtp.status, 303);
     assert.equal(dashboardAfterOtp.headers.get('location'), '/dashboard/registrar');
+  });
+});
+
+test('a pending OTP session cannot gain a newly upgraded role', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 39, email: 'staff@example.edu', password_hash: passwordHash, role: 'registrar', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user);
+  const environment = emailTwoFactorEnvironment();
+
+  await withServer(createApp({ databasePool: createAuthDatabase([user]).getPool, environment, twoFactorService }), async (baseUrl) => {
+    const login = await startEmailLogin(baseUrl, user.email);
+    user.role = 'database_admin';
+    const response = await fetch(`${baseUrl}/login/verify`, { headers: { cookie: login.authenticatedCookie }, redirect: 'manual' });
+    assert.equal(response.status, 401);
+    assert.match(await response.text(), /Invalid email or password/);
+    const dashboard = await fetch(`${baseUrl}/dashboard`, { headers: { cookie: login.authenticatedCookie }, redirect: 'manual' });
+    assert.equal(dashboard.status, 302);
+    assert.equal(dashboard.headers.get('location'), '/login');
   });
 });
 

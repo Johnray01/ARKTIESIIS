@@ -1,0 +1,70 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page admin-page" id="main-content">
+  <section class="dashboard-heading">
+    <div>
+      <h1>Create user account</h1>
+      <p>Assign an approved role and set an initial password.</p>
+    </div>
+    <a class="button button--secondary" href="/admin">Back to administration</a>
+  </section>
+
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+
+  <section class="admin-form-section" aria-labelledby="account-details-title">
+    <h2 id="account-details-title">Account details</h2>
+    <form class="form-stack admin-form" method="post" action="/admin/users">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="field">
+        <label for="email">Email address</label>
+        <input id="email" name="email" type="email" maxlength="255" autocomplete="email" required value="<%= values.email || '' %>">
+      </div>
+      <div class="field">
+        <label for="role">Role</label>
+        <select id="role" name="role" required>
+          <% for (const role of ['registrar', 'finance', 'database_admin', 'student']) { %>
+            <option value="<%= role %>" <%= values.role === role ? 'selected' : '' %>><%= role.replaceAll('_', ' ') %></option>
+          <% } %>
+        </select>
+        <span class="field-help">The role controls which protected system areas the account can access.</span>
+      </div>
+      <fieldset class="admin-fieldset">
+        <legend>Profile information</legend>
+        <p class="field-help">Staff roles use these name and department fields. A student login must link to an existing student record by student number.</p>
+        <div class="admin-form-grid">
+          <div class="field">
+            <label for="first-name">First name (staff)</label>
+            <input id="first-name" name="firstName" type="text" maxlength="100" autocomplete="given-name" value="<%= values.first_name || '' %>">
+          </div>
+          <div class="field">
+            <label for="last-name">Last name (staff)</label>
+            <input id="last-name" name="lastName" type="text" maxlength="100" autocomplete="family-name" value="<%= values.last_name || '' %>">
+          </div>
+          <div class="field">
+            <label for="department">Department (staff, optional)</label>
+            <input id="department" name="department" type="text" maxlength="100" value="<%= values.department || '' %>">
+          </div>
+          <div class="field">
+            <label for="student-number">Student number</label>
+            <input id="student-number" name="studentNo" type="text" maxlength="50" value="<%= values.student_no || '' %>">
+          </div>
+        </div>
+      </fieldset>
+      <div class="admin-form-grid">
+        <div class="field">
+          <label for="password">Initial password</label>
+          <input id="password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="password-help">
+          <span id="password-help" class="field-help">Use 12 to 72 UTF-8 bytes. It will be stored as a bcrypt hash.</span>
+        </div>
+        <div class="field">
+          <label for="confirm-password">Confirm password</label>
+          <input id="confirm-password" name="confirmPassword" type="password" minlength="12" maxlength="72" autocomplete="new-password" required>
+        </div>
+      </div>
+      <div class="admin-form-actions">
+        <button class="button button--primary" type="submit">Create account</button>
+        <a class="button button--secondary" href="/admin">Cancel</a>
+      </div>
+    </form>
+  </section>
+</main>
+<%- include('../partials/foot') %>

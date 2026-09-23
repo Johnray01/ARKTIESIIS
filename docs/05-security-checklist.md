@@ -9,6 +9,11 @@
 - SMTP misconfiguration and delivery errors fail closed without returning provider or database details.
 - Session ID regenerated after authentication.
 - Role checks on every protected server route.
+- Database administration routes require an active `database_admin` role and CSRF validation on every mutation.
+- Authenticated sessions hold only an HMAC fingerprint of role, password hash, and account update timestamp; stale or pre-fingerprint sessions are rejected after account changes.
+- Administrator changes write the account/profile and audit event in one serializable transaction; at least one active administrator must remain and self-demotion/deactivation is blocked.
+- Password resets use bcrypt and invalidate pending email sign-in codes; reset values and raw audit detail JSON are never rendered.
+- Student account links are checked against an existing unlinked student number, and role changes preserve student records while clearing an obsolete login link.
 - Students can only read their own student records.
 - SQL queries are parameterized.
 - Uploads have allowlisted MIME types/extensions.

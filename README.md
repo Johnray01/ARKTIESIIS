@@ -86,10 +86,16 @@ The server checks the database before opening its HTTP listener. `/health` retur
 
 Outside the explicit development bypass, a correct password starts email two-factor authentication. Set `SMTP_HOST` and the matching SMTP port/security settings, `SMTP_FROM`, and both SMTP credentials when required by the mail server. A cryptographically generated six-digit code expires after five minutes; only its bcrypt hash is stored. Verification allows five attempts per account every 15 minutes. Code sends are limited to three per account every 15 minutes with a 30-second cooldown; a new code invalidates the previous one. If SMTP is not configured, sign in fails closed.
 
-Password-only login is available only when both `NODE_ENV=development` and `DEV_PASSWORD_ONLY_LOGIN=true`. That path is denied in production and test environments. Protected requests re-check the account's active status and role in SQL Server. Role dashboard pages are placeholders until their later phases.
+Password-only login is available only when both `NODE_ENV=development` and `DEV_PASSWORD_ONLY_LOGIN=true`. That path is denied in production and test environments. Protected requests re-check the account's active status and role in SQL Server.
+
+## Phase 4 database administration
+
+Only active `database_admin` accounts can use `/admin`. Administrators can search accounts by email or student number, create and update user accounts, assign the approved roles, activate or deactivate accounts, reset passwords, and view the latest 100 audit events. Account/profile changes and their audit events are committed together. At least one active database administrator must remain, and an administrator cannot demote or deactivate their own account. Account changes invalidate older sessions; changing your own email or password signs out that session, and password resets also invalidate pending email sign-in codes. Passwords and raw audit details are not shown in the administration screens.
+
+Staff accounts use `staff_profiles`. A student login can only be attached to an existing unlinked `students` record by student number. Changing a student account to a staff role clears that login link and preserves the student record and its academic history. Student record creation and editing remain in Phase 5. Existing databases need no Phase 4 migration.
 
 ## Current starter status
-This repository contains the project foundation and Phases 2–3 authentication. Role dashboard features, CRUD modules, document upload, and Document AI workflows are implemented phase by phase.
+This repository contains the project foundation, Phases 2–3 authentication, and Phase 4 database administration. Student records, academic records, finance, document upload, and Document AI workflows are implemented phase by phase.
 
 ## Recommended workflow with Codex
 Start with the content of `CODEX_START_PROMPT.md`.

@@ -1,16 +1,91 @@
 <%- include('../partials/head', { title }) %>
-<main class="page-shell dashboard-page" id="main-content">
+<main class="page-shell dashboard-page admin-page" id="main-content">
   <section class="dashboard-heading">
-    <h1>Database administration</h1>
-    <p>ARKTIESIIS workspace</p>
+    <div>
+      <h1>Database administration</h1>
+      <p>Signed in as <%= currentUser.email %></p>
+    </div>
+    <div class="admin-heading-actions">
+      <a class="button button--secondary" href="/records">Student records</a>
+      <a class="button button--primary" href="/admin/users/new">Create account</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="button button--secondary" type="submit">Sign out</button>
+      </form>
+    </div>
   </section>
-  <section class="placeholder-state" aria-labelledby="placeholder-title">
-    <h2 id="placeholder-title">Dashboard placeholder</h2>
-    <p>Database administration tools are not available in this build.</p>
+
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+
+  <section class="admin-section" aria-labelledby="users-title">
+    <div class="admin-section__heading">
+      <div>
+        <h2 id="users-title">User accounts</h2>
+        <p>Search by email or student number. Results are limited to 250 accounts.</p>
+      </div>
+      <a class="button button--secondary" href="/admin/users/new">Add user</a>
+    </div>
+    <% if (searchError) { %><p class="form-alert" role="alert"><%= searchError %></p><% } %>
+    <form class="admin-search" method="get" action="/admin">
+      <div class="field">
+        <label for="account-search">Email or student number</label>
+        <input id="account-search" name="search" type="search" maxlength="100" value="<%= searchTerm %>" autocomplete="off">
+      </div>
+      <button class="button button--secondary" type="submit">Search accounts</button>
+      <% if (searchTerm) { %><a class="table-action" href="/admin">Clear search</a><% } %>
+    </form>
+    <p class="admin-result-count"><%= users.length %> matching account<%= users.length === 1 ? '' : 's' %><% if (users.length === 250) { %> (showing the newest 250)<% } %></p>
+    <% if (users.length) { %>
+      <div class="table-scroll" tabindex="0" aria-label="Scrollable user accounts table">
+        <table class="admin-table">
+          <caption class="visually-hidden">User accounts and access status</caption>
+          <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Created</th><th scope="col"><span class="visually-hidden">Account actions</span></th></tr></thead>
+          <tbody>
+            <% for (const user of users) { %>
+              <tr>
+                <td data-label="Name"><%= user.display_name %></td>
+                <td data-label="Email"><%= user.email %></td>
+                <td data-label="Role"><%= user.role.replaceAll('_', ' ') %></td>
+                <td data-label="Status"><span class="account-status <%= user.is_active ? 'account-status--active' : 'account-status--inactive' %>"><%= user.is_active ? 'Active' : 'Inactive' %></span></td>
+                <td data-label="Created"><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '—' %></td>
+                <td data-label="Actions"><a class="table-action" href="/admin/users/<%= user.id %>/edit">Manage</a></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %>
+      <p class="empty-state">No user accounts are available.</p>
+    <% } %>
   </section>
-  <form class="dashboard-actions" method="post" action="/logout">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <button class="button button--secondary" type="submit">Sign out</button>
-  </form>
+
+  <section class="admin-section" aria-labelledby="audit-title">
+    <div class="admin-section__heading">
+      <div>
+        <h2 id="audit-title">Recent audit activity</h2>
+        <p>Latest 100 recorded actions. Sensitive event details are not shown here.</p>
+      </div>
+    </div>
+    <% if (auditLogs.length) { %>
+      <div class="table-scroll" tabindex="0" aria-label="Scrollable audit activity table">
+        <table class="admin-table">
+          <caption class="visually-hidden">Recent system audit activity</caption>
+          <thead><tr><th scope="col">When</th><th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Record</th></tr></thead>
+          <tbody>
+            <% for (const event of auditLogs) { %>
+              <tr>
+                <td data-label="When"><%= event.created_at ? new Date(event.created_at).toLocaleString() : '—' %></td>
+                <td data-label="Actor"><%= event.actor_email || `User ${event.user_id || 'system'}` %></td>
+                <td data-label="Action"><%= event.action %></td>
+                <td data-label="Record"><%= event.entity_type || '—' %><%= event.entity_id ? ` #${event.entity_id}` : '' %></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %>
+      <p class="empty-state">No audit events have been recorded.</p>
+    <% } %>
+  </section>
 </main>
 <%- include('../partials/foot') %>

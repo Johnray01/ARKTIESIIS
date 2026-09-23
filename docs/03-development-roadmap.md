@@ -21,7 +21,7 @@
 - Development-only password login behind `NODE_ENV=development` and `DEV_PASSWORD_ONLY_LOGIN=true`.
 - Login/logout session CSRF checks and database-backed active status/role checks.
 
-**Phase 2 boundary:** email 2FA remains Phase 3. Password-only sessions are denied outside the explicitly enabled development environment; role dashboard pages are placeholders.
+**Phase 2 boundary:** email 2FA remains Phase 3. Password-only sessions are denied outside the explicitly enabled development environment. Registrar, finance, and student pages were placeholders at this phase and are implemented by later phases below.
 
 ## Phase 3 - Email 2FA
 - Generate short-lived OTP.
@@ -32,10 +32,12 @@
 - Share per-account attempt and send limits across sessions.
 
 ## Phase 4 - Database Admin
-- User management.
-- Role management within approved rules.
-- Account activation/deactivation.
-- Audit log viewer.
+- [x] User account listing, creation, and updates.
+- [x] Role management for the approved roles, including staff profile maintenance.
+- [x] Account activation/deactivation with last-active-administrator and self-lockout safeguards.
+- [x] Password reset with bcrypt hashing and pending sign-in code invalidation.
+- [x] Database-admin-only audit log viewer that omits raw event details.
+- [x] Student logins link to existing unlinked student records; Phase 4 does not create or edit student master records.
 
 ## Phase 5 - Student Records
 - Student profiles.

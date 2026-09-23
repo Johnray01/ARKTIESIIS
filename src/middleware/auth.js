@@ -26,6 +26,21 @@ function hasValidCsrfToken(req) {
     && crypto.timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
+function createAuthFingerprint(user, environment = defaultEnvironment) {
+  if (!user || typeof user.role !== 'string' || typeof user.password_hash !== 'string' || !user.password_hash) return null;
+  const updatedAt = typeof user.updated_at_fingerprint === 'string' ? user.updated_at_fingerprint : '';
+  return crypto.createHmac('sha256', environment.sessionSecret)
+    .update(`${user.role}\u0000${user.password_hash}\u0000${updatedAt}`)
+    .digest('hex');
+}
+
+function hasMatchingAuthFingerprint(expected, actual) {
+  if (typeof expected !== 'string' || typeof actual !== 'string') return false;
+  const expectedBytes = Buffer.from(expected);
+  const actualBytes = Buffer.from(actual);
+  return expectedBytes.length === actualBytes.length && crypto.timingSafeEqual(expectedBytes, actualBytes);
+}
+
 function clearSessionCookie(res, environment = defaultEnvironment) {
   res.clearCookie('connect.sid', {
     httpOnly: true,
@@ -58,10 +73,15 @@ function createRequireAuth({ getPool = defaultGetPool, sql = defaultSql, environ
       const pool = await getPool();
       const result = await pool.request()
         .input('userId', sql.Int, userId)
-        .query('SELECT id, email, role, is_active FROM dbo.users WHERE id = @userId');
+        .query('SELECT id, email, role, is_active, password_hash, CONVERT(NVARCHAR(33), updated_at, 126) AS updated_at_fingerprint FROM dbo.users WHERE id = @userId');
       const user = result.recordset?.[0];
 
       if (!user || !(user.is_active === true || user.is_active === 1)) {
+        return destroySession(req, res, environment, () => res.redirect('/login'));
+      }
+
+      const expectedFingerprint = createAuthFingerprint(user, environment);
+      if (!hasMatchingAuthFingerprint(expectedFingerprint, req.session.authFingerprint)) {
         return destroySession(req, res, environment, () => res.redirect('/login'));
       }
 
@@ -79,6 +99,8 @@ function createRequireAuth({ getPool = defaultGetPool, sql = defaultSql, environ
 module.exports = {
   ensureCsrfToken,
   hasValidCsrfToken,
+  createAuthFingerprint,
+  hasMatchingAuthFingerprint,
   isDevelopmentPasswordLoginEnabled,
   createRequireAuth,
   destroySession,
