@@ -10,7 +10,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const projectRoot = path.resolve(__dirname, '..');
 
-function createApp({ databasePool = getPool } = {}) {
+function createApp({ databasePool = getPool, environment = env } = {}) {
   const app = express();
 
   app.set('view engine', 'ejs');
@@ -23,18 +23,18 @@ function createApp({ databasePool = getPool } = {}) {
   app.use(express.static(path.join(projectRoot, 'public')));
 
   app.use(session({
-    secret: env.sessionSecret,
+    secret: environment.sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: env.nodeEnv === 'production',
+      secure: environment.nodeEnv === 'production',
       maxAge: 8 * 60 * 60 * 1000
     }
   }));
 
-  app.use(createRouter({ getPool: databasePool }));
+  app.use(createRouter({ getPool: databasePool, environment }));
 
   app.use((req, res) => {
     res.status(404).render('error', { title: 'Not Found', message: 'Page not found.' });

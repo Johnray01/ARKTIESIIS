@@ -1,6 +1,8 @@
 # Security Checklist
 
 - Passwords hashed with bcrypt.
+- Password-only login is disabled unless both development environment flags are set; it is not a production authentication mode.
+- Login and logout forms use session-based CSRF tokens.
 - Email 2FA codes stored hashed and expire quickly.
 - Session ID regenerated after authentication.
 - Role checks on every protected server route.

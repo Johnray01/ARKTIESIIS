@@ -1,9 +1,10 @@
 function errorHandler(err, req, res, next) {
-  console.error(err);
+  console.error('Request failed.');
   if (res.headersSent) return next(err);
-  res.status(err.status || 500).render('error', {
-    title: 'Error',
-    message: process.env.NODE_ENV === 'production' ? 'Something went wrong.' : err.message
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
+  res.status(status).render('error', {
+    title: status === 404 ? 'Not Found' : 'Error',
+    message: status < 500 ? err.message : 'Something went wrong.'
   });
 }
 

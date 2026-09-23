@@ -1,0 +1,7 @@
+<%- include('../partials/head', { title }) %>
+<main class="shell">
+  <h1>Registrar Dashboard</h1>
+  <p>Dashboard features will be added in a later phase.</p>
+  <form method="post" action="/logout"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button type="submit">Log out</button></form>
+</main>
+<%- include('../partials/foot') %>

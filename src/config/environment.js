@@ -34,6 +34,7 @@ if (nodeEnv === 'production') {
 
 module.exports = {
   nodeEnv,
+  devPasswordOnlyLogin: process.env.DEV_PASSWORD_ONLY_LOGIN === 'true',
   port: parsePort('PORT', process.env.PORT, 3000),
   sessionSecret: normalizedSessionSecret || 'dev-only-change-me',
   database: {

@@ -32,19 +32,27 @@ npm ci
 npm run db:check
 ```
 
-7. Start the development server:
+7. Create the first database administrator from a private interactive terminal:
+
+```bash
+npm run admin:bootstrap
+```
+
+The command prompts for the administrator's email, name, and password. Password input is not echoed or accepted as a command-line argument. It creates the account only when no `database_admin` exists, and writes the user, staff profile, and audit event in one transaction.
+
+8. Start the development server:
 
 ```bash
 npm run dev
 ```
 
-8. Open:
+9. Open:
 
 ```text
 http://localhost:3000
 ```
 
-9. Check database connectivity while the server is running:
+10. Check database connectivity while the server is running:
 
 ```text
 http://localhost:3000/health
@@ -52,8 +60,12 @@ http://localhost:3000/health
 
 The server checks the database before opening its HTTP listener. `/health` returns `200` when SQL Server responds and `503` when the database is unavailable; it does not include database error details.
 
+## Phase 2 authentication
+
+Password-only login is a temporary development path. Set both `NODE_ENV=development` and `DEV_PASSWORD_ONLY_LOGIN=true` in `.env` to enable it. It is denied in production and test environments. Protected requests re-check the account's active status and role in SQL Server. Phase 3 will add email-based two-factor authentication; this phase does not send or verify OTP codes. Role dashboard pages are placeholders until their later phases.
+
 ## Current starter status
-This repository intentionally contains only the project foundation. Login, 2FA, CRUD modules, dashboards, document upload, and Document AI workflows must be implemented phase by phase.
+This repository contains the project foundation and Phase 2 development-only authentication. Email 2FA, role dashboard features, CRUD modules, document upload, and Document AI workflows are implemented phase by phase.
 
 ## Recommended workflow with Codex
 Start with the content of `CODEX_START_PROMPT.md`.

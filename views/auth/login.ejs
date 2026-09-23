@@ -1,6 +1,15 @@
 <%- include('../partials/head', { title }) %>
 <main class="shell">
   <h1>Login</h1>
-  <p>This is only a starter view. Authentication is implemented in Phase 2.</p>
+  <p>Sign in with your school account.</p>
+  <% if (error) { %><p role="alert"><%= error %></p><% } %>
+  <form method="post" action="/login">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" maxlength="255" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Login</button>
+  </form>
 </main>
 <%- include('../partials/foot') %>

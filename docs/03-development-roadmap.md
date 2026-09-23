@@ -17,6 +17,11 @@
 - Sessions.
 - Login rate limiting.
 - Role-based middleware and redirects.
+- One-time database administrator bootstrap command.
+- Development-only password login behind `NODE_ENV=development` and `DEV_PASSWORD_ONLY_LOGIN=true`.
+- Login/logout session CSRF checks and database-backed active status/role checks.
+
+**Phase 2 boundary:** email 2FA remains Phase 3. Password-only sessions are denied outside the explicitly enabled development environment; role dashboard pages are placeholders.
 
 ## Phase 3 - Email 2FA
 - Generate short-lived OTP.
