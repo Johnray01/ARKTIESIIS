@@ -7,6 +7,7 @@
     </div>
     <div class="admin-heading-actions">
       <a class="button button--primary" href="/records/students/new">Add student</a>
+      <a class="button button--secondary" href="/records/subjects">Subject catalog</a>
       <% if (currentUser.role === 'database_admin') { %><a class="button button--secondary" href="/admin">User accounts</a><% } %>
       <form method="post" action="/logout">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -56,7 +57,7 @@
                 <td data-label="Term"><%= student.academic_term_id ? `${student.school_year} · ${student.term}` : '—' %></td>
                 <td data-label="Section"><%= student.section_name || '—' %></td>
                 <td data-label="Enrollment"><%= student.enrollment_status || 'Not enrolled' %></td>
-                <td data-label="Actions"><a class="table-action" href="/records/students/<%= student.id %>/edit">View / edit</a></td>
+                <td data-label="Actions"><a class="table-action" href="/records/students/<%= student.id %>/edit">View / edit</a> · <a class="table-action" href="/records/students/<%= student.id %>/academic">Academic record</a></td>
               </tr>
             <% } %>
           </tbody>

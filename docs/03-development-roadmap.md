@@ -50,11 +50,16 @@
 - [x] Audit events for profile, term, section, and enrollment mutations.
 
 ## Phase 6 - Registrar / Academic Records
-- Registrar dashboard.
-- Enrollment history.
-- Subjects.
-- Grades.
-- Student information views.
+- [x] Registrar dashboard links to student records and the subject catalog.
+- [x] Subject catalog creation and updates with validated code, name, and optional units.
+- [x] Assign subjects only to an existing student's enrollment, with uniqueness enforcement.
+- [x] Create or update grades by enrollment subject and caller-provided grading period.
+- [x] Student information and enrollment history views with subjects and grade entries.
+- [x] Student dashboard shows only grades joined through the authenticated user's linked student record.
+- [x] Registrar-only academic writes; database administrators may read; finance is denied.
+- [x] Academic writes use CSRF, serializable transactions, parameterized SQL, uniqueness checks, and audit records.
+
+**Provisional grading assumption:** grades currently accept numeric values from 0 through 100, with up to two decimal places. The range is isolated in `normalizeGradeValue` so it can be replaced when the school confirms its grading scale. Grading period labels are provided by authorized staff and validated for length; the application does not invent period names.
 
 ## Phase 7 - Finance
 - Financial account records.

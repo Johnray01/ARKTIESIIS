@@ -16,7 +16,9 @@ const {
 const { requireRole } = require('../middleware/roles');
 const { createAdminRouter } = require('./admin');
 const { createStudentRecordsRouter } = require('./studentRecords');
+const { createAcademicRecordsRouter } = require('./academicRecords');
 const { createStudentRecordsService } = require('../services/studentRecordsService');
+const { createAcademicRecordsService } = require('../services/academicRecordsService');
 
 const credentialError = 'Invalid email or password.';
 // Fixed cost-12 hash for timing equalization; no account uses its discarded random source value.
@@ -43,10 +45,11 @@ async function verifyPassword(user, password, comparePassword = bcrypt.compare) 
   return Boolean(active && passwordMatches);
 }
 
-function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService } = {}) {
+function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService, academicRecordsService } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth({ getPool, sql, environment });
   const recordsService = studentRecordsService || createStudentRecordsService({ getPool, sql });
+  const academicsService = academicRecordsService || createAcademicRecordsService({ getPool, sql });
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 10,
@@ -109,6 +112,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
 
   router.use('/admin', requireAuth, requireRole('database_admin'), createAdminRouter({ getPool, sql, adminService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createStudentRecordsRouter({ getPool, sql, studentRecordsService: recordsService }));
+  router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createAcademicRecordsRouter({ getPool, sql, academicRecordsService: academicsService }));
 
   router.get('/', (req, res) => {
     res.render('home', { title: 'ARKTIESIIS' });
@@ -310,6 +314,9 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
   router.get('/dashboard/student', requireAuth, requireRole('student'), async (req, res) => {
     try {
       const ownRecords = await recordsService.getOwnStudentRecord(req.authUser.id);
+      if (ownRecords) {
+        ownRecords.grades = await academicsService.getOwnGrades(req.authUser.id);
+      }
       return res.render('dashboards/student', {
         title: dashboardViews.student.title,
         csrfToken: ensureCsrfToken(req),

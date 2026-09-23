@@ -677,6 +677,101 @@ p {
   overflow-wrap: anywhere;
 }
 
+.academic-enrollment {
+  margin-top: 1.5rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid var(--line);
+}
+
+.academic-enrollment h3,
+.academic-subject h4,
+.academic-assignment-form h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.academic-enrollment > .muted-copy {
+  margin-block: 0.3rem 1rem;
+}
+
+.academic-subject-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.academic-subject {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: #fff;
+}
+
+.academic-subject > .admin-section__heading {
+  margin-bottom: 0.8rem;
+}
+
+.academic-grade-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.academic-grade-item {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border-radius: 0.35rem;
+  background: #f7f8f9;
+}
+
+.academic-grade-item > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+}
+
+.academic-grade-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 0.8rem;
+}
+
+.academic-grade-form .button {
+  min-height: 3rem;
+}
+
+.academic-grade-form--new {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.academic-assignment-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.academic-assignment-form h4 {
+  grid-column: 1 / -1;
+}
+
+.academic-assignment-form .button {
+  min-height: 3rem;
+}
+
+.admin-table td input {
+  width: 100%;
+  min-width: 8rem;
+  min-height: 2.6rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.3rem;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
 .admin-form {
   margin-top: 1.25rem;
 }
@@ -846,6 +941,14 @@ p {
     grid-template-columns: 1fr;
   }
 
+  .academic-grade-form,
+  .academic-assignment-form {
+    grid-template-columns: 1fr;
+  }
+
+  .academic-assignment-form h4 {
+    grid-column: auto;
+  }
 
   .field--full {
     grid-column: auto;

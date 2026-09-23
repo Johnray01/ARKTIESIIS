@@ -7,6 +7,7 @@
     </div>
     <div class="admin-heading-actions">
       <a class="button button--primary" href="/records">Student records</a>
+      <a class="button button--secondary" href="/records/subjects">Subject catalog</a>
       <form method="post" action="/logout">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <button class="button button--secondary" type="submit">Sign out</button>
@@ -14,8 +15,8 @@
     </div>
   </section>
   <section class="placeholder-state" aria-labelledby="placeholder-title">
-    <h2 id="placeholder-title">Student records workspace</h2>
-    <p>Manage student profiles, academic terms, sections, and enrollment history.</p>
+    <h2 id="placeholder-title">Academic records workspace</h2>
+    <p>Manage student profiles, enrollment history, the subject catalog, and grades. Grade entries are associated with an enrolled subject and a grading period.</p>
   </section>
 </main>
 <%- include('../partials/foot') %>

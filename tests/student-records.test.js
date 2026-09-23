@@ -251,6 +251,7 @@ test('finance cannot access the student master list and denied requests do not l
 
 test('student dashboard resolves the own profile from session identity and rejects staff workspace access', async () => {
   const ownUserIds = [];
+  const ownGradeUserIds = [];
   const studentRecordsService = {
     async getOwnStudentRecord(userId) {
       ownUserIds.push(userId);
@@ -258,12 +259,16 @@ test('student dashboard resolves the own profile from session identity and rejec
     },
     async listWorkspace() { throw new Error('student should not read the staff list'); }
   };
-  await withServer(createApp({ databasePool: makeAuthPool('student'), environment, studentRecordsService }), async (baseUrl) => {
+  const academicRecordsService = {
+    async getOwnGrades(userId) { ownGradeUserIds.push(userId); return []; }
+  };
+  await withServer(createApp({ databasePool: makeAuthPool('student'), environment, studentRecordsService, academicRecordsService }), async (baseUrl) => {
     const cookie = await signIn(baseUrl, 'student');
     const dashboard = await fetch(`${baseUrl}/dashboard/student?studentId=999`, { headers: { cookie } });
     assert.equal(dashboard.status, 200);
     assert.match(await dashboard.text(), /S-7/);
     assert.deepEqual(ownUserIds, [7]);
+    assert.deepEqual(ownGradeUserIds, [7]);
     const records = await fetch(`${baseUrl}/records`, { headers: { cookie } });
     assert.equal(records.status, 403);
   });

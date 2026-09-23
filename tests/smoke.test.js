@@ -632,7 +632,8 @@ test('login and logout reject missing or invalid session CSRF tokens and valid l
       async getOwnStudentRecord() {
         return { student: { student_no: 'TEST-3', first_name: 'Student', last_name: 'Example' }, enrollments: [] };
       }
-    }
+    },
+    academicRecordsService: { async getOwnGrades() { return []; } }
   }), async (baseUrl) => {
     const page = await fetch(`${baseUrl}/login`);
     const anonymousCookie = getSessionCookie(page);

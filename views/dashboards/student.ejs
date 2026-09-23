@@ -37,6 +37,22 @@
         </div>
       <% } else { %><p class="empty-state">No enrollment records are linked to your account.</p><% } %>
     </section>
+    <section class="admin-section" aria-labelledby="grades-title">
+      <div class="admin-section__heading"><div><h2 id="grades-title">My grades</h2><p>Grades recorded for subjects in your enrollment history.</p></div></div>
+      <% if (ownRecords.grades && ownRecords.grades.length) { %>
+        <div class="table-scroll" tabindex="0" aria-label="Your grades">
+          <table class="admin-table"><thead><tr><th scope="col">Term</th><th scope="col">Subject</th><th scope="col">Grading period</th><th scope="col">Grade</th><th scope="col">Remarks</th></tr></thead><tbody>
+            <% for (const grade of ownRecords.grades) { %><tr>
+              <td data-label="Term"><%= grade.school_year %> · <%= grade.term %></td>
+              <td data-label="Subject"><%= grade.subject_code %> · <%= grade.subject_name %></td>
+              <td data-label="Grading period"><%= grade.grading_period %></td>
+              <td data-label="Grade"><%= grade.grade_value ?? 'Pending' %></td>
+              <td data-label="Remarks"><%= grade.remarks || '—' %></td>
+            </tr><% } %>
+          </tbody></table>
+        </div>
+      <% } else { %><p class="empty-state">No grades are linked to your account yet.</p><% } %>
+    </section>
   <% } else { %>
     <section class="placeholder-state" aria-labelledby="profile-unavailable-title">
       <h2 id="profile-unavailable-title">Student profile is not linked</h2>

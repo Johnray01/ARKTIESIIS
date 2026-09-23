@@ -6,6 +6,7 @@
       <p><% if (student) { %>Student number <%= student.student_no %><% } else { %>Enter the student’s master record details.<% } %></p>
     </div>
     <div class="admin-heading-actions">
+      <% if (student) { %><a class="button button--primary" href="/records/students/<%= student.id %>/academic">Academic record</a><% } %>
       <a class="button button--secondary" href="/records">Back to student records</a>
       <form method="post" action="/logout"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="button button--secondary" type="submit">Sign out</button></form>
     </div>
