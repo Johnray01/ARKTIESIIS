@@ -176,6 +176,14 @@ function createStudentRecordsService({
         VALUES (@actorId, @action, @entityType, @entityId, @detailsJson)`);
   }
 
+  async function invalidatePendingCodes(transaction, userId) {
+    await transaction.request()
+      .input('userId', sql.Int, userId)
+      .query(`UPDATE dbo.two_factor_codes
+        SET consumed_at = SYSUTCDATETIME()
+        WHERE user_id = @userId AND consumed_at IS NULL`);
+  }
+
   async function listTerms(pool) {
     const result = await pool.request().query(`
       SELECT TOP (100) id, school_year, term, is_current
@@ -209,6 +217,7 @@ function createStudentRecordsService({
       .query(`
         SELECT TOP (250) s.id, s.student_no, s.first_name, s.middle_name,
           s.last_name, s.suffix, s.birth_date, s.sex, s.phone, s.status,
+          s.user_id, u.is_active AS linked_account_is_active,
           e.id AS enrollment_id, e.enrollment_status,
           t.id AS academic_term_id, t.school_year, t.term, sec.name AS section_name
         FROM dbo.students AS s
@@ -222,6 +231,7 @@ function createStudentRecordsService({
           ORDER BY at.is_current DESC, at.id DESC, en.id DESC
         ) AS latest
         LEFT JOIN dbo.enrollments AS e ON e.id = latest.id
+        LEFT JOIN dbo.users AS u ON u.id = s.user_id
         LEFT JOIN dbo.academic_terms AS t ON t.id = latest.term_id
         LEFT JOIN dbo.sections AS sec ON sec.id = latest.section_id AND sec.academic_term_id = latest.academic_term_id
         WHERE (@academicTermId IS NULL OR EXISTS (
@@ -244,9 +254,10 @@ function createStudentRecordsService({
     const pool = await getPool();
     const result = await pool.request()
       .input('studentId', sql.Int, id)
-      .query(`SELECT id, user_id, student_no, first_name, middle_name, last_name, suffix,
-        birth_date, sex, address, phone, status, created_at, updated_at
-        FROM dbo.students WHERE id = @studentId`);
+      .query(`SELECT s.id, s.user_id, s.student_no, s.first_name, s.middle_name, s.last_name, s.suffix,
+        s.birth_date, s.sex, s.address, s.phone, s.status, s.created_at, s.updated_at,
+        u.is_active AS linked_account_is_active
+        FROM dbo.students AS s LEFT JOIN dbo.users AS u ON u.id = s.user_id WHERE s.id = @studentId`);
     const student = result.recordset?.[0];
     if (!student) return null;
     const [terms, sections, enrollments] = await Promise.all([
@@ -312,8 +323,12 @@ function createStudentRecordsService({
         if (!savedId) throw new Error('Student record insert returned no identifier.');
       } else {
         const current = await transaction.request().input('studentId', sql.Int, id)
-          .query('SELECT id FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+          .query('SELECT id, status, student_no FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
         if (!current.recordset?.length) throw new StudentRecordsError('Student record not found.', 404);
+        if (current.recordset[0].status === 'archived') throw new StudentRecordsError('Archived student profiles cannot be edited.', 409);
+        if (actor.role === 'registrar' && student.studentNo !== current.recordset[0].student_no) {
+          throw new StudentRecordsError('Only database administrators can change a student number.', 403);
+        }
         await request.input('studentId', sql.Int, id).query(`UPDATE dbo.students
           SET student_no = @studentNo, first_name = @firstName, middle_name = @middleName,
             last_name = @lastName, suffix = @suffix, birth_date = @birthDate,
@@ -326,6 +341,72 @@ function createStudentRecordsService({
         entityType: 'student', entityId: savedId
       });
       return savedId;
+    });
+  }
+
+  async function deactivateStudentLogin(actorIdInput, studentInput, confirmationInput) {
+    const studentId = normalizeRecordId(studentInput);
+    if (!studentId) throw new StudentRecordsError('Student record not found.', 404);
+    if (confirmationInput !== 'DEACTIVATE') {
+      throw new StudentRecordsError('Type DEACTIVATE to confirm disabling the student login.');
+    }
+    return runTransaction(async (transaction) => {
+      const actor = await requireAcademicActor(transaction, actorIdInput);
+      if (actor.role !== 'registrar') throw new StudentRecordsError('Only registrars can deactivate a student login.', 403);
+      const studentResult = await transaction.request().input('studentId', sql.Int, studentId)
+        .query('SELECT id, user_id, status FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+      const student = studentResult.recordset?.[0];
+      if (!student) throw new StudentRecordsError('Student record not found.', 404);
+      if (student.status === 'archived') throw new StudentRecordsError('Archived student logins are already disabled.', 409);
+      if (!student.user_id) throw new StudentRecordsError('This student has no linked login account.', 409);
+      const userResult = await transaction.request().input('userId', sql.Int, student.user_id)
+        .query('SELECT id, is_active FROM dbo.users WITH (UPDLOCK, HOLDLOCK) WHERE id = @userId AND role = N\'student\'');
+      const user = userResult.recordset?.[0];
+      if (!user) throw new StudentRecordsError('The linked student login could not be found.', 409);
+      if (!(user.is_active === true || user.is_active === 1)) throw new StudentRecordsError('The linked student login is already inactive.', 409);
+      await transaction.request().input('userId', sql.Int, user.id)
+        .query('UPDATE dbo.users SET is_active = 0, updated_at = SYSUTCDATETIME() WHERE id = @userId');
+      await invalidatePendingCodes(transaction, user.id);
+      await writeAudit(transaction, {
+        actorId: actor.id, actorRole: actor.role, action: 'student_login_deactivated',
+        entityType: 'student', entityId: studentId, details: { userId: user.id }
+      });
+      return studentId;
+    });
+  }
+
+  async function archiveStudent(actorIdInput, studentInput, confirmationInput) {
+    const studentId = normalizeRecordId(studentInput);
+    if (!studentId) throw new StudentRecordsError('Student record not found.', 404);
+    if (typeof confirmationInput !== 'string' || confirmationInput.length > 50) {
+      throw new StudentRecordsError('Type this student’s number to confirm archiving.');
+    }
+    return runTransaction(async (transaction) => {
+      const actor = await requireAcademicActor(transaction, actorIdInput);
+      if (actor.role !== 'database_admin') throw new StudentRecordsError('Only database administrators can archive student records.', 403);
+      const studentResult = await transaction.request().input('studentId', sql.Int, studentId)
+        .query('SELECT id, user_id, student_no, status FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+      const student = studentResult.recordset?.[0];
+      if (!student) throw new StudentRecordsError('Student record not found.', 404);
+      if (confirmationInput !== student.student_no) throw new StudentRecordsError('Type this student’s number to confirm archiving.');
+      if (student.status === 'archived') throw new StudentRecordsError('This student record is already archived.', 409);
+
+      await transaction.request().input('studentId', sql.Int, studentId)
+        .query(`UPDATE dbo.students SET status = N'archived', updated_at = SYSUTCDATETIME()
+          WHERE id = @studentId`);
+      let loginDeactivated = false;
+      if (student.user_id) {
+        await transaction.request().input('userId', sql.Int, student.user_id)
+          .query(`UPDATE dbo.users SET is_active = 0, updated_at = SYSUTCDATETIME()
+            WHERE id = @userId AND role = N'student'`);
+        await invalidatePendingCodes(transaction, student.user_id);
+        loginDeactivated = true;
+      }
+      await writeAudit(transaction, {
+        actorId: actor.id, actorRole: actor.role, action: 'student_archived',
+        entityType: 'student', entityId: studentId, details: { studentNo: student.student_no, loginDeactivated }
+      });
+      return studentId;
     });
   }
 
@@ -406,8 +487,9 @@ function createStudentRecordsService({
     return runTransaction(async (transaction) => {
       const actor = await requireAcademicActor(transaction, actorId);
       const student = await transaction.request().input('studentId', sql.Int, enrollment.studentId)
-        .query('SELECT id FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+        .query('SELECT id, status FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
       if (!student.recordset?.length) throw new StudentRecordsError('Student record not found.', 404);
+      if (student.recordset[0].status === 'archived') throw new StudentRecordsError('Archived students cannot receive new enrollments.', 409);
       const term = await transaction.request().input('termId', sql.Int, enrollment.academicTermId)
         .query('SELECT id FROM dbo.academic_terms WITH (UPDLOCK, HOLDLOCK) WHERE id = @termId');
       if (!term.recordset?.length) throw new StudentRecordsError('Academic term not found.', 404);
@@ -454,7 +536,10 @@ function createStudentRecordsService({
     });
   }
 
-  return { listWorkspace, getStudent, getOwnStudentRecord, saveStudent, createTerm, setCurrentTerm, createSection, saveEnrollment };
+  return {
+    listWorkspace, getStudent, getOwnStudentRecord, saveStudent, deactivateStudentLogin, archiveStudent,
+    createTerm, setCurrentTerm, createSection, saveEnrollment
+  };
 }
 
 module.exports = {

@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { getPool: defaultGetPool, sql: defaultSql } = require('../config/database');
 const defaultEnvironment = require('../config/environment');
+const { buildNavigation } = require('./navigation');
 
 function isDevelopmentPasswordLoginEnabled(environment = defaultEnvironment) {
   return environment.nodeEnv === 'development' && environment.devPasswordOnlyLogin === true;
@@ -86,6 +87,13 @@ function createRequireAuth({ getPool = defaultGetPool, sql = defaultSql, environ
       }
 
       req.authUser = { id: user.id, email: user.email, role: user.role };
+      const navigation = buildNavigation(req.authUser.role, req.originalUrl);
+      res.locals.currentUser = req.authUser;
+      res.locals.currentPath = req.originalUrl.split('?', 1)[0];
+      res.locals.navigationItems = navigation.items;
+      res.locals.currentPage = navigation.currentPage;
+      res.locals.csrfToken = ensureCsrfToken(req);
+      res.locals.errorRecovery = { href: '/dashboard', label: 'Return to your workspace' };
       return next();
     } catch {
       return res.status(503).render('error', {

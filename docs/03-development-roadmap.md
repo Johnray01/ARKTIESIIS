@@ -38,6 +38,7 @@
 - [x] Password reset with bcrypt hashing and pending sign-in code invalidation.
 - [x] Database-admin-only audit log viewer that omits raw event details.
 - [x] Student logins link to existing unlinked student records; Phase 4 does not create or edit student master records.
+- [x] Database administrators may archive student records; linked login access and pending OTPs are disabled while academic and finance history remains.
 
 ## Phase 5 - Student Records
 - [x] Registrar/database administrator student master list with bounded name/student-number search and term filter.
@@ -56,7 +57,7 @@
 - [x] Create or update grades by enrollment subject and caller-provided grading period.
 - [x] Student information and enrollment history views with subjects and grade entries.
 - [x] Student dashboard shows only grades joined through the authenticated user's linked student record.
-- [x] Registrar-only academic writes; database administrators may read; finance is denied.
+- [x] Registrar and database administrator academic writes; finance is denied.
 - [x] Academic writes use CSRF, serializable transactions, parameterized SQL, uniqueness checks, and audit records.
 
 **Provisional grading assumption:** grades currently accept numeric values from 0 through 100, with up to two decimal places. The range is isolated in `normalizeGradeValue` so it can be replaced when the school confirms its grading scale. Grading period labels are provided by authorized staff and validated for length; the application does not invent period names.
@@ -66,8 +67,9 @@
 - [x] Finance staff can view a student's account, current balance, and latest 100 transactions; an account is created only by an explicit POST.
 - [x] Charges and payments require positive PHP amounts; adjustments require a nonzero signed PHP amount and a reason. Amounts are limited to DECIMAL(12,2) precision.
 - [x] Charges increase balance, payments decrease balance, and signed adjustments apply directly; a negative balance represents a credit.
-- [x] Finance-only server routes deny database administrators, registrars, and students. Write transactions recheck the active finance role.
+- [x] Finance workspace is available to finance staff and database administrators; registrars and students are denied. Write transactions recheck the active role.
 - [x] CSRF-protected, parameterized account and transaction writes use serializable transactions, row locks, duplicate-reference checks, and atomic audit records.
+- [x] Registrar may deactivate a linked student login without archiving the student record.
 
 **Reference number rule:** a nonempty reference number is accepted once per financial account after trimming. Duplicate matching follows the SQL Server database collation. Reuse on a different account is allowed.
 
@@ -122,6 +124,6 @@
 ## Phase 15 - Deployment / Defense Readiness
 - Production environment config.
 - Database backup/restore procedure.
-- Demo accounts and sample data.
+- Development-only demo accounts and sample records with a guarded, idempotent seeder.
 - Final end-to-end test.
 - Defense demo checklist.

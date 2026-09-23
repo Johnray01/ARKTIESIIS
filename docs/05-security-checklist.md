@@ -15,9 +15,10 @@
 - Password resets use bcrypt and invalidate pending email sign-in codes; reset values and raw audit detail JSON are never rendered.
 - Student account links are checked against an existing unlinked student number, and role changes preserve student records while clearing an obsolete login link.
 - Student profile, term, section, and enrollment mutations require an active registrar or database administrator, CSRF validation, parameterized SQL, and an audit event in the same transaction.
-- Finance routes require an active finance role; students, registrars, and database administrators cannot read or write finance records.
+- Registrar login deactivation and database administrator student archival recheck the active role and commit account/profile state, pending OTP invalidation, and audit event transactionally. Archival retains linked history.
+- Finance routes permit active finance and database administrator roles; students and registrars are denied.
 - Financial search is bounded and returns only student identifiers and finance data. Account creation is an explicit CSRF-protected POST, never a read side effect.
-- Account creation and transaction writes recheck the active finance role inside a serializable transaction. Account row locks protect balances; duplicate references are checked within the owning account; transaction insert, balance update, and audit event commit or roll back together.
+- Finance account creation and transaction writes recheck the active finance or database administrator role inside a serializable transaction. Account row locks protect balances; duplicate references are checked within the owning account; transaction insert, balance update, and audit event commit or roll back together.
 - Finance amounts are validated server-side within `DECIMAL(12,2)` bounds; charges/payments are positive, adjustments are nonzero and signed with a required reason, and resulting balance overflow is rejected.
 - Enrollment section assignments are checked against the selected academic term and the database composite foreign key remains authoritative.
 - Students can only read their own student profile and enrollment history through the authenticated account link; student record IDs are not accepted by that self-view.

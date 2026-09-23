@@ -20,6 +20,10 @@
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <button class="button button--secondary" type="submit">Send a new code</button>
     </form>
+    <form class="account-switch-form" method="post" action="/login/verify/cancel">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="text-button" type="submit">Use another account</button>
+    </form>
   </section>
 </main>
 <%- include('../partials/foot') %>

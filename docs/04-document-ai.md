@@ -1,14 +1,13 @@
 # AI-Assisted Document Validation
 
 ## Intended flow
-1. User selects the document type before upload.
+1. Uploader selects the document type before upload; AI does not classify it.
 2. Server checks role permission, file type, and size.
 3. File is stored securely and marked `processing`.
-4. Server sends the document to Google Document AI.
-5. OCR/document parsing returns extracted text/data.
-6. ARKTIESIIS applies document-type-specific validation rules.
-7. System stores the result and shows it to authorized users.
-8. Documents that need judgment are sent to human review.
+4. Server sends the document to Google Document AI for OCR/text extraction.
+5. ARKTIESIIS applies required-field, completeness, and configured format/compliance checks for the uploader-selected type.
+6. System stores the result and shows it to authorized users.
+7. Documents that need judgment are sent to human review.
 
 ## Example validation
 For a report card, configured rules may check for values such as:
@@ -32,5 +31,6 @@ The exact fields must be confirmed with the institution before final implementat
 - Paper/material authenticity.
 - Forensic examination.
 - Training a new machine-learning model.
+- Classifying a document or claiming it is authentic.
 
-Google Document AI provides the document processing/OCR capability. Node.js handles application logic, API calls, storage, and validation rules. PyTorch is not required for this architecture unless the thesis scope is formally changed to include a custom ML model.
+Google Document AI provides OCR/text extraction. Node.js handles application logic, API calls, storage, and validation rules. No custom model or forensic analysis is in scope.

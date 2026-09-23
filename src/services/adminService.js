@@ -176,9 +176,9 @@ function createAdminService({
   async function linkStudent(transaction, { userId, studentNo }) {
     const studentResult = await transaction.request()
       .input('studentNo', sql.NVarChar(50), studentNo)
-      .query('SELECT id, user_id FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE student_no = @studentNo');
+      .query('SELECT id, user_id, status FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE student_no = @studentNo');
     const student = studentResult.recordset?.[0];
-    if (!student || (student.user_id !== null && student.user_id !== userId)) {
+    if (!student || student.status === 'archived' || (student.user_id !== null && student.user_id !== userId)) {
       throw new AdminServiceError('That student number is unavailable or does not match an existing student record.', 409);
     }
 

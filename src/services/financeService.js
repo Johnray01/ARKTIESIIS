@@ -126,23 +126,26 @@ function createFinanceService({
 
   async function requireFinanceActor(transaction, actorInput) {
     const actorId = normalizeId(actorInput);
-    if (!actorId) throw new FinanceServiceError('Finance access is required.', 403);
+    if (!actorId) throw new FinanceServiceError('Finance or database administrator access is required.', 403);
     const result = await transaction.request()
       .input('actorId', sql.Int, actorId)
       .input('financeRole', sql.NVarChar(30), 'finance')
+      .input('adminRole', sql.NVarChar(30), 'database_admin')
       .query(`SELECT id, role FROM dbo.users WITH (UPDLOCK, HOLDLOCK)
-        WHERE id = @actorId AND is_active = 1 AND role = @financeRole`);
+        WHERE id = @actorId AND is_active = 1 AND role IN (@financeRole, @adminRole)`);
     const actor = result.recordset?.[0];
-    if (!actor || actor.role !== 'finance') {
+    if (!actor || !['finance', 'database_admin'].includes(actor.role)) {
       throw new FinanceServiceError('Your finance access is no longer active. Sign in again.', 403);
     }
     return actor;
   }
 
-  async function writeAudit(transaction, { actorId, action, entityId, details }) {
+  async function writeAudit(transaction, { actorId, actorRole, action, entityId, details }) {
     await transaction.request()
       .input('actorId', sql.Int, actorId)
-      .input('action', sql.NVarChar(100), `finance.${action}`)
+      .input('action', sql.NVarChar(100), actorRole === 'database_admin'
+        ? `database_admin.finance_${action}`
+        : `finance.${action}`)
       .input('entityType', sql.NVarChar(100), 'financial_account')
       .input('entityId', sql.NVarChar(100), String(entityId))
       .input('detailsJson', sql.NVarChar(sql.MAX), JSON.stringify(details))
@@ -177,7 +180,7 @@ function createFinanceService({
     const pool = await getPool();
     const studentResult = await pool.request()
       .input('studentId', sql.Int, studentId)
-      .query(`SELECT id AS student_id, student_no, first_name, middle_name, last_name, suffix
+      .query(`SELECT id AS student_id, student_no, first_name, middle_name, last_name, suffix, status
         FROM dbo.students WHERE id = @studentId`);
     const student = studentResult.recordset?.[0];
     if (!student) return null;
@@ -209,8 +212,10 @@ function createFinanceService({
       const actor = await requireFinanceActor(transaction, actorInput);
       const studentResult = await transaction.request()
         .input('studentId', sql.Int, studentId)
-        .query('SELECT id FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
-      if (!studentResult.recordset?.length) throw new FinanceServiceError('Student record not found.', 404);
+        .query('SELECT id, status FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+      const student = studentResult.recordset?.[0];
+      if (!student) throw new FinanceServiceError('Student record not found.', 404);
+      if (student.status === 'archived') throw new FinanceServiceError('Archived students cannot receive new finance records.', 409);
 
       const existingResult = await transaction.request()
         .input('studentId', sql.Int, studentId)
@@ -225,6 +230,7 @@ function createFinanceService({
       if (!Number.isSafeInteger(accountId) || accountId < 1) throw new Error('Financial account insert returned no identifier.');
       await writeAudit(transaction, {
         actorId: actor.id,
+        actorRole: actor.role,
         action: 'account_created',
         entityId: accountId,
         details: { studentId }
@@ -241,12 +247,13 @@ function createFinanceService({
       const actor = await requireFinanceActor(transaction, actorInput);
       const accountResult = await transaction.request()
         .input('studentId', sql.Int, studentId)
-        .query(`SELECT a.id AS financial_account_id, CONVERT(NVARCHAR(40), a.balance) AS balance
+        .query(`SELECT a.id AS financial_account_id, CONVERT(NVARCHAR(40), a.balance) AS balance, s.status
           FROM dbo.financial_accounts AS a WITH (UPDLOCK, HOLDLOCK)
-          INNER JOIN dbo.students AS s WITH (HOLDLOCK) ON s.id = a.student_id
+          INNER JOIN dbo.students AS s WITH (UPDLOCK, HOLDLOCK) ON s.id = a.student_id
           WHERE s.id = @studentId`);
       const account = accountResult.recordset?.[0];
       if (!account) throw new FinanceServiceError('Financial account not found. Create the account before recording a transaction.', 404);
+      if (account.status === 'archived') throw new FinanceServiceError('Archived students cannot receive new finance records.', 409);
 
       if (entry.referenceNo) {
         const duplicate = await transaction.request()
@@ -285,6 +292,7 @@ function createFinanceService({
       if (!Number.isSafeInteger(transactionId) || transactionId < 1) throw new Error('Financial transaction insert returned no identifier.');
       await writeAudit(transaction, {
         actorId: actor.id,
+        actorRole: actor.role,
         action: 'transaction_recorded',
         entityId: account.financial_account_id,
         details: {

@@ -5,10 +5,6 @@
       <h1>My student record</h1>
       <p>ARKTIESIIS workspace</p>
     </div>
-    <form method="post" action="/logout">
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-      <button class="button button--secondary" type="submit">Sign out</button>
-    </form>
   </section>
   <% if (ownRecords) { %>
     <section class="admin-section" aria-labelledby="profile-title">
@@ -30,7 +26,7 @@
             <% for (const enrollment of ownRecords.enrollments) { %><tr>
               <td data-label="Academic term"><%= enrollment.school_year %> · <%= enrollment.term %></td>
               <td data-label="Section"><%= enrollment.section_name || 'Not assigned' %></td>
-              <td data-label="Status"><%= enrollment.enrollment_status %></td>
+              <td data-label="Status"><%= enrollment.enrollment_status ? enrollment.enrollment_status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) : 'Unknown' %></td>
               <td data-label="Current term"><%= enrollment.is_current ? 'Yes' : 'No' %></td>
             </tr><% } %>
           </tbody></table>

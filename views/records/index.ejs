@@ -7,12 +7,6 @@
     </div>
     <div class="admin-heading-actions">
       <a class="button button--primary" href="/records/students/new">Add student</a>
-      <a class="button button--secondary" href="/records/subjects">Subject catalog</a>
-      <% if (currentUser.role === 'database_admin') { %><a class="button button--secondary" href="/admin">User accounts</a><% } %>
-      <form method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button class="button button--secondary" type="submit">Sign out</button>
-      </form>
     </div>
   </section>
 
@@ -48,16 +42,17 @@
       <div class="table-scroll" tabindex="0" aria-label="Scrollable student records table">
         <table class="admin-table">
           <caption class="visually-hidden">Student master list and latest selected enrollment</caption>
-          <thead><tr><th scope="col">Student number</th><th scope="col">Student name</th><th scope="col">Term</th><th scope="col">Section</th><th scope="col">Enrollment</th><th scope="col"><span class="visually-hidden">Record actions</span></th></tr></thead>
+          <thead><tr><th scope="col">Student number</th><th scope="col">Student name</th><th scope="col">Status</th><th scope="col">Term</th><th scope="col">Section</th><th scope="col">Enrollment</th><th scope="col"><span class="visually-hidden">Record actions</span></th></tr></thead>
           <tbody>
             <% for (const student of students) { %>
               <tr>
                 <td data-label="Student number"><%= student.student_no %></td>
                 <td data-label="Student name"><%= [student.first_name, student.middle_name, student.last_name, student.suffix].filter(Boolean).join(' ') %></td>
+                <td data-label="Status"><span class="record-status <%= student.status === 'active' ? 'record-status--active' : student.status === 'archived' ? 'record-status--archived' : '' %>"><%= student.status ? student.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) : 'Unknown' %></span></td>
                 <td data-label="Term"><%= student.academic_term_id ? `${student.school_year} · ${student.term}` : '—' %></td>
                 <td data-label="Section"><%= student.section_name || '—' %></td>
-                <td data-label="Enrollment"><%= student.enrollment_status || 'Not enrolled' %></td>
-                <td data-label="Actions"><a class="table-action" href="/records/students/<%= student.id %>/edit">View / edit</a> · <a class="table-action" href="/records/students/<%= student.id %>/academic">Academic record</a></td>
+                <td data-label="Enrollment"><%= student.enrollment_status ? student.enrollment_status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) : 'Not enrolled' %></td>
+                <td data-label="Actions"><div class="records-table-actions"><a class="table-action" href="/records/students/<%= student.id %>/edit">Edit profile</a><a class="table-action" href="/records/students/<%= student.id %>/academic">Academic record</a></div></td>
               </tr>
             <% } %>
           </tbody>

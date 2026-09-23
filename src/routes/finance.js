@@ -1,6 +1,6 @@
 const express = require('express');
 const { ensureCsrfToken, hasValidCsrfToken } = require('../middleware/auth');
-const { FinanceServiceError, createFinanceService, normalizeId } = require('../services/financeService');
+const { FinanceServiceError, createFinanceService, normalizeId, normalizeSearchTerm } = require('../services/financeService');
 
 const notices = {
   accountCreated: 'Financial account created.',
@@ -17,6 +17,23 @@ function formValues(input = {}) {
   };
 }
 
+function searchTermFromQuery(req) {
+  try {
+    return normalizeSearchTerm(req.query.search);
+  } catch {
+    return '';
+  }
+}
+
+function detailUrl(req, studentId, notice) {
+  const query = new URLSearchParams();
+  const searchTerm = searchTermFromQuery(req);
+  if (searchTerm) query.set('search', searchTerm);
+  if (notice) query.set('notice', notice);
+  const suffix = query.toString();
+  return `/finance/students/${studentId}${suffix ? `?${suffix}` : ''}`;
+}
+
 function createFinanceRouter({ getPool, sql, financeService } = {}) {
   const router = express.Router();
   const service = financeService || createFinanceService({ getPool, sql });
@@ -26,8 +43,10 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
       const result = await service.searchStudents(searchTerm);
       return res.status(status).render('finance/workspace', {
         title: 'Finance Workspace',
+        currentUser: req.authUser,
         csrfToken: ensureCsrfToken(req),
         searchTerm: result.searchTerm,
+        searchSuffix: result.searchTerm ? `?search=${encodeURIComponent(result.searchTerm)}` : '',
         students: result.students,
         searchError,
         student: null,
@@ -40,7 +59,8 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
     } catch (error) {
       if (error instanceof FinanceServiceError) {
         return res.status(error.status).render('finance/workspace', {
-          title: 'Finance Workspace', csrfToken: ensureCsrfToken(req), searchTerm: '', students: [],
+          title: 'Finance Workspace', currentUser: req.authUser, csrfToken: ensureCsrfToken(req), searchTerm: '', students: [],
+          searchSuffix: '',
           searchError: error.message, student: null, account: null, transactions: [], error: null,
           notice: null, transactionValues: formValues()
         });
@@ -53,10 +73,14 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
     try {
       const result = await service.getStudentAccount(studentId);
       if (!result) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
+      const searchTerm = searchTermFromQuery(req);
+      const searchSuffix = searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : '';
       return res.status(status).render('finance/workspace', {
         title: 'Financial Account',
+        currentUser: req.authUser,
         csrfToken: ensureCsrfToken(req),
-        searchTerm: '',
+        searchTerm,
+        searchSuffix,
         students: [],
         searchError: null,
         student: result.student,
@@ -87,7 +111,7 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
     if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
     try {
       await service.createAccount(req.authUser.id, studentId);
-      return res.redirect(303, `/finance/students/${studentId}?notice=accountCreated`);
+      return res.redirect(303, detailUrl(req, studentId, 'accountCreated'));
     } catch (error) {
       if (error instanceof FinanceServiceError && error.status === 403) {
         return res.status(403).render('error', { title: 'Forbidden', message: 'Finance access is no longer active. Sign in again.' });
@@ -108,7 +132,7 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
     if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
     try {
       await service.recordTransaction(req.authUser.id, studentId, req.body);
-      return res.redirect(303, `/finance/students/${studentId}?notice=transactionRecorded`);
+      return res.redirect(303, detailUrl(req, studentId, 'transactionRecorded'));
     } catch (error) {
       if (error instanceof FinanceServiceError) {
         if (error.status === 403) {

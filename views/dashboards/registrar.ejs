@@ -5,14 +5,6 @@
       <h1>Registrar dashboard</h1>
       <p>ARKTIESIIS workspace</p>
     </div>
-    <div class="admin-heading-actions">
-      <a class="button button--primary" href="/records">Student records</a>
-      <a class="button button--secondary" href="/records/subjects">Subject catalog</a>
-      <form method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button class="button button--secondary" type="submit">Sign out</button>
-      </form>
-    </div>
   </section>
   <section class="placeholder-state" aria-labelledby="placeholder-title">
     <h2 id="placeholder-title">Academic records workspace</h2>

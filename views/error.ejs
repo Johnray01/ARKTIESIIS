@@ -3,7 +3,12 @@
   <section class="status-content" aria-labelledby="status-title">
     <h1 id="status-title"><%= title %></h1>
     <p><%= message %></p>
-    <a class="button button--primary" href="/">Return to home</a>
+    <% const recovery = typeof errorRecovery !== 'undefined' && errorRecovery
+      ? errorRecovery
+      : title === 'Not Found'
+        ? { href: '/', label: 'Return to home' }
+        : { href: '/login', label: 'Return to sign in' }; %>
+    <a class="button button--primary" href="<%= recovery.href %>"><%= recovery.label %></a>
   </section>
 </main>
 <%- include('partials/foot') %>

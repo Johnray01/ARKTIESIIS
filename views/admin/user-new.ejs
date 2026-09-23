@@ -1,18 +1,18 @@
 <%- include('../partials/head', { title }) %>
 <main class="page-shell dashboard-page admin-page" id="main-content">
+  <a class="context-back" href="/admin#users-title">Back to accounts</a>
   <section class="dashboard-heading">
     <div>
       <h1>Create user account</h1>
       <p>Assign an approved role and set an initial password.</p>
     </div>
-    <a class="button button--secondary" href="/admin">Back to administration</a>
   </section>
 
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
   <section class="admin-form-section" aria-labelledby="account-details-title">
     <h2 id="account-details-title">Account details</h2>
-    <form class="form-stack admin-form" method="post" action="/admin/users">
+    <form class="form-stack admin-form" method="post" action="/admin/users" data-password-match-form>
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="field">
         <label for="email">Email address</label>
@@ -22,7 +22,7 @@
         <label for="role">Role</label>
         <select id="role" name="role" required>
           <% for (const role of ['registrar', 'finance', 'database_admin', 'student']) { %>
-            <option value="<%= role %>" <%= values.role === role ? 'selected' : '' %>><%= role.replaceAll('_', ' ') %></option>
+            <option value="<%= role %>" <%= values.role === role ? 'selected' : '' %>><%= role.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) %></option>
           <% } %>
         </select>
         <span class="field-help">The role controls which protected system areas the account can access.</span>
@@ -52,17 +52,18 @@
       <div class="admin-form-grid">
         <div class="field">
           <label for="password">Initial password</label>
-          <input id="password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="password-help">
+          <input id="password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="password-help" data-password-source>
           <span id="password-help" class="field-help">Use 12 to 72 UTF-8 bytes. It will be stored as a bcrypt hash.</span>
         </div>
         <div class="field">
           <label for="confirm-password">Confirm password</label>
-          <input id="confirm-password" name="confirmPassword" type="password" minlength="12" maxlength="72" autocomplete="new-password" required>
+          <input id="confirm-password" name="confirmPassword" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="confirm-password-mismatch" data-password-confirm>
+          <span id="confirm-password-mismatch" class="password-match-error" data-password-mismatch-message aria-live="polite" aria-atomic="true"></span>
         </div>
       </div>
       <div class="admin-form-actions">
         <button class="button button--primary" type="submit">Create account</button>
-        <a class="button button--secondary" href="/admin">Cancel</a>
+        <a class="button button--secondary" href="/admin#users-title">Cancel</a>
       </div>
     </form>
   </section>

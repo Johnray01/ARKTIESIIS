@@ -192,7 +192,7 @@ test('staff-to-student role changes link an existing student and retain the staf
     if (statement.includes('WHERE id = @actorId')) return { recordset: [{ id: 7 }] };
     if (statement.includes('WHERE id = @userId')) return { recordset: [{ id: 8, email: 'staff@example.edu', role: 'registrar', is_active: true }] };
     if (statement.includes('UPDATE dbo.users SET email')) return { recordset: [] };
-    if (statement.includes('FROM dbo.students WITH (UPDLOCK, HOLDLOCK)')) return { recordset: [{ id: 51, user_id: null }] };
+    if (statement.includes('FROM dbo.students WITH (UPDLOCK, HOLDLOCK)')) return { recordset: [{ id: 51, user_id: null, status: 'active' }] };
     if (statement.includes('UPDATE dbo.students SET user_id = NULL')) return { recordset: [] };
     if (statement.includes('UPDATE dbo.students SET user_id = @userId')) return { recordset: [] };
     if (statement.includes('INSERT INTO dbo.audit_logs')) return { recordset: [] };
@@ -206,6 +206,23 @@ test('staff-to-student role changes link an existing student and retain the staf
   assert.ok(log.queries.some(({ statement }) => statement.includes('UPDATE dbo.students SET user_id = @userId, updated_at = SYSUTCDATETIME() WHERE id = @studentId')));
   assert.equal(log.queries.some(({ statement }) => statement.includes('DELETE FROM dbo.staff_profiles')), false);
   assert.ok(log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')));
+});
+
+test('administrator cannot link a login to an archived student record', async () => {
+  const { service, log } = transactionalService(({ statement }) => {
+    if (statement.includes('WHERE id = @actorId')) return { recordset: [{ id: 7 }] };
+    if (statement.includes('WHERE id = @userId')) return { recordset: [{ id: 8, email: 'staff@example.edu', role: 'registrar', is_active: true }] };
+    if (statement.includes('UPDATE dbo.users SET email')) return { recordset: [] };
+    if (statement.includes('FROM dbo.students WITH (UPDLOCK, HOLDLOCK)')) return { recordset: [{ id: 51, user_id: null, status: 'archived' }] };
+    throw new Error(`Unexpected query: ${statement}`);
+  });
+
+  await assert.rejects(service.updateUser(7, 8, {
+    email: 'learner@example.edu', role: 'student', isActive: '1', studentNo: 'STU-0051'
+  }), /student number is unavailable/);
+  assert.equal(log.rolledBack, true);
+  assert.equal(log.queries.some(({ statement }) => statement.includes('UPDATE dbo.students SET user_id = @userId')), false);
+  assert.equal(log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
 });
 
 test('an administrator cannot demote or deactivate their own account', async () => {
@@ -312,6 +329,61 @@ test('invalid account form data is rejected before account creation', async () =
   });
 });
 
+test('create and reset forms reject mismatched passwords without returning submitted values', async () => {
+  let createCalls = 0;
+  let resetCalls = 0;
+  const adminService = {
+    async createUser() { createCalls += 1; return 44; },
+    async getUser() {
+      return { id: 44, email: 'user@example.edu', role: 'registrar', is_active: true };
+    },
+    async resetPassword() { resetCalls += 1; }
+  };
+
+  await withServer(createApp({ databasePool: createAuthPool('database_admin'), environment: testEnvironment, adminService }), async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'database_admin@example.edu');
+    const createPage = await fetch(`${baseUrl}/admin/users/new`, { headers: { cookie } });
+    const createPageHtml = await createPage.text();
+    assert.match(createPageHtml, /data-password-match-form/);
+    assert.match(createPageHtml, /id="confirm-password-mismatch"[^>]*data-password-mismatch-message/);
+
+    const newPassword = 'New-Password-Is-Secret-1';
+    const differentConfirmation = 'Different-Secret-Password-2';
+    const createResponse = await postForm(baseUrl, '/admin/users', cookie, {
+      _csrf: csrfFromHtml(createPageHtml),
+      email: 'new@example.edu',
+      role: 'registrar',
+      firstName: 'Casey',
+      lastName: 'Staff',
+      password: newPassword,
+      confirmPassword: differentConfirmation
+    });
+    const createHtml = await createResponse.text();
+    assert.equal(createResponse.status, 400);
+    assert.match(createHtml, /Passwords do not match\./);
+    assert.equal(createHtml.includes(newPassword), false);
+    assert.equal(createHtml.includes(differentConfirmation), false);
+    assert.equal(createCalls, 0);
+
+    const editPage = await fetch(`${baseUrl}/admin/users/44/edit`, { headers: { cookie } });
+    const editPageHtml = await editPage.text();
+    assert.match(editPageHtml, /data-password-match-form/);
+    assert.match(editPageHtml, /id="new-password-mismatch"[^>]*data-password-mismatch-message/);
+
+    const resetResponse = await postForm(baseUrl, '/admin/users/44/password', cookie, {
+      _csrf: csrfFromHtml(editPageHtml),
+      password: newPassword,
+      confirmPassword: differentConfirmation
+    });
+    const resetHtml = await resetResponse.text();
+    assert.equal(resetResponse.status, 400);
+    assert.match(resetHtml, /Passwords do not match\./);
+    assert.equal(resetHtml.includes(newPassword), false);
+    assert.equal(resetHtml.includes(differentConfirmation), false);
+    assert.equal(resetCalls, 0);
+  });
+});
+
 test('audit viewer omits stored detail JSON', async () => {
   const adminService = {
     async listDashboard() {
@@ -326,7 +398,7 @@ test('audit viewer omits stored detail JSON', async () => {
     const response = await fetch(`${baseUrl}/admin`, { headers: { cookie } });
     const html = await response.text();
     assert.equal(response.status, 200);
-    assert.match(html, /admin\.user_created/);
+    assert.match(html, /Admin · user created/);
     assert.doesNotMatch(html, /must-not-render/);
   });
 });

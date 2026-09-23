@@ -69,7 +69,7 @@ function createAcademicRecordsRouter({ getPool, sql, academicRecordsService } = 
 
   router.get('/subjects', (req, res) => renderSubjects(req, res));
 
-  router.post('/subjects', requireRole('registrar'), async (req, res) => {
+  router.post('/subjects', requireRole('database_admin', 'registrar'), async (req, res) => {
     if (!hasValidCsrfToken(req)) {
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }
@@ -84,7 +84,7 @@ function createAcademicRecordsRouter({ getPool, sql, academicRecordsService } = 
     }
   });
 
-  router.post('/subjects/:id', requireRole('registrar'), async (req, res) => {
+  router.post('/subjects/:id', requireRole('database_admin', 'registrar'), async (req, res) => {
     if (!hasValidCsrfToken(req)) {
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }
@@ -106,7 +106,7 @@ function createAcademicRecordsRouter({ getPool, sql, academicRecordsService } = 
     return renderAcademicRecord(req, res, studentId);
   });
 
-  router.post('/student-subjects', requireRole('registrar'), async (req, res) => {
+  router.post('/student-subjects', requireRole('database_admin', 'registrar'), async (req, res) => {
     if (!hasValidCsrfToken(req)) {
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }
@@ -122,7 +122,7 @@ function createAcademicRecordsRouter({ getPool, sql, academicRecordsService } = 
     }
   });
 
-  router.post('/grades', requireRole('registrar'), async (req, res) => {
+  router.post('/grades', requireRole('database_admin', 'registrar'), async (req, res) => {
     if (!hasValidCsrfToken(req)) {
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }

@@ -1,5 +1,6 @@
 const express = require('express');
 const { ensureCsrfToken, hasValidCsrfToken } = require('../middleware/auth');
+const { requireRole } = require('../middleware/roles');
 const {
   StudentRecordsError,
   createStudentRecordsService,
@@ -10,10 +11,12 @@ const {
 const notices = {
   studentCreated: 'Student profile created.',
   studentUpdated: 'Student profile updated.',
+  studentArchived: 'Student record archived. Academic and finance history was retained.',
+  loginDeactivated: 'Student login deactivated.',
   termCreated: 'Academic term created.',
   termCurrent: 'Current academic term updated.',
   sectionCreated: 'Section created.',
-  enrollmentSaved: 'Enrollment saved.'
+  enrollmentSaved: 'Enrollment saved.',
 };
 
 function studentValues(input = {}) {
@@ -86,14 +89,19 @@ function createStudentRecordsRouter({ getPool, sql, studentRecordsService } = {}
         return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
       }
       const workspace = record ? null : await service.listWorkspace('', '');
+      const formValues = Object.keys(values).length
+        ? studentValues(values)
+        : record ? valuesFromStudent(record.student) : studentValues();
+      if (record && req.authUser.role === 'registrar') formValues.studentNo = record.student.student_no;
       return res.status(status).render('records/student-form', {
         title: studentId === null ? 'Create Student Profile' : 'Student Record',
         csrfToken: ensureCsrfToken(req),
+        currentUser: req.authUser,
         student: record?.student || null,
         terms: record?.terms || workspace.terms,
         sections: record?.sections || workspace.sections,
         enrollments: record?.enrollments || [],
-        values: Object.keys(values).length ? studentValues(values) : record ? valuesFromStudent(record.student) : studentValues(),
+        values: formValues,
         error,
         notice
       });
@@ -148,6 +156,36 @@ function createStudentRecordsRouter({ getPool, sql, studentRecordsService } = {}
       if (error instanceof StudentRecordsError) return renderStudentForm(req, res, { studentId, values, error: error.message, status: error.status });
       if (isUniqueStudentConflict(error)) return renderStudentForm(req, res, { studentId, values, error: 'That student number is already in use.', status: 409 });
       return res.status(503).render('error', { title: 'Service Unavailable', message: 'The student profile could not be updated.' });
+    }
+  });
+
+  router.post('/students/:id/login/deactivate', requireRole('registrar'), async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+    const studentId = normalizeRecordId(req.params.id);
+    if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
+    try {
+      await service.deactivateStudentLogin(req.authUser.id, studentId, req.body?.confirmation);
+      return res.redirect(303, `/records/students/${studentId}/edit?notice=loginDeactivated`);
+    } catch (error) {
+      if (error instanceof StudentRecordsError) return renderStudentForm(req, res, { studentId, error: error.message, status: error.status });
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'The student login could not be deactivated.' });
+    }
+  });
+
+  router.post('/students/:id/archive', requireRole('database_admin'), async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+    const studentId = normalizeRecordId(req.params.id);
+    if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
+    try {
+      await service.archiveStudent(req.authUser.id, studentId, req.body?.confirmation);
+      return res.redirect(303, `/records?notice=studentArchived`);
+    } catch (error) {
+      if (error instanceof StudentRecordsError) return renderStudentForm(req, res, { studentId, error: error.message, status: error.status });
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'The student record could not be archived.' });
     }
   });
 

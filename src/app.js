@@ -37,7 +37,13 @@ function createApp({ databasePool = getPool, environment = env, twoFactorService
   app.use(createRouter({ getPool: databasePool, environment, twoFactorService, adminService, studentRecordsService, academicRecordsService, financeService }));
 
   app.use((req, res) => {
-    res.status(404).render('error', { title: 'Not Found', message: 'Page not found.' });
+    res.status(404).render('error', {
+      title: 'Not Found',
+      message: 'Page not found.',
+      errorRecovery: res.locals.currentUser
+        ? { href: '/dashboard', label: 'Return to your workspace' }
+        : { href: '/', label: 'Return to home' }
+    });
   });
 
   app.use(errorHandler);

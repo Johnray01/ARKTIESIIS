@@ -162,15 +162,25 @@ test('subject creation is parameterized, registrar-checked, serializable, and au
   assert.equal(audit.values.entityId, '31');
 });
 
-test('academic writes reject non-registrar actors and duplicate catalog keys without audit writes', async () => {
+test('academic writes allow database administrators and reject other roles or duplicate catalog keys', async () => {
   const denied = transactionalService(({ statement }) => {
-    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'database_admin' }] };
+    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'finance' }] };
     throw new Error(`Unexpected query: ${statement}`);
   });
-  await assert.rejects(denied.service.saveSubject(7, null, { subjectCode: 'CS1', subjectName: 'Computer Science' }), /Registrar access is no longer active/);
+  await assert.rejects(denied.service.saveSubject(7, null, { subjectCode: 'CS1', subjectName: 'Computer Science' }), /Academic record access is no longer active/);
   assert.equal(denied.log.rolledBack, true);
   assert.equal(denied.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.subjects')), false);
   assert.equal(denied.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
+
+  const admin = transactionalService(({ statement }) => {
+    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'database_admin' }] };
+    if (statement.includes('FROM dbo.subjects')) return { recordset: [] };
+    if (statement.includes('INSERT INTO dbo.subjects')) return { recordset: [{ id: 12 }] };
+    if (statement.includes('INSERT INTO dbo.audit_logs')) return { recordset: [] };
+    throw new Error(`Unexpected query: ${statement}`);
+  });
+  assert.equal(await admin.service.saveSubject(7, null, { subjectCode: 'CS1', subjectName: 'Computer Science' }), 12);
+  assert.equal(admin.log.queries.at(-1).values.action, 'database_admin.subject_created');
 
   const duplicate = transactionalService(({ statement }) => {
     if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'registrar' }] };
@@ -201,6 +211,39 @@ test('subject assignment verifies the student owns the enrollment and records au
   assert.deepEqual(enrollmentCheck.values, { enrollmentId: 22, studentId: 10 });
   assert.equal(log.queries.at(-1).values.action, 'registrar.subject_assigned');
   assert.equal(log.committed, true);
+});
+
+test('archived students cannot receive subject assignments or new grade writes', async () => {
+  const archivedAssignment = transactionalService(({ statement }) => {
+    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'registrar' }] };
+    if (statement.includes('FROM dbo.enrollments')) return { recordset: [{ id: 22, student_id: 10, status: 'archived' }] };
+    throw new Error(`Unexpected query: ${statement}`);
+  });
+  await assert.rejects(
+    archivedAssignment.service.assignSubject(7, { studentId: '10', enrollmentId: '22', subjectId: '4' }),
+    /Archived students cannot receive new academic records/
+  );
+  assert.equal(archivedAssignment.log.rolledBack, true);
+  const enrollmentRead = archivedAssignment.log.queries.find(({ statement }) => statement.includes('FROM dbo.enrollments'));
+  assert.match(enrollmentRead.statement, /st\.status/);
+  assert.match(enrollmentRead.statement, /dbo\.students AS st WITH \(UPDLOCK, HOLDLOCK\)/);
+  assert.equal(archivedAssignment.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.student_subjects')), false);
+  assert.equal(archivedAssignment.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
+
+  const archivedGrade = transactionalService(({ statement }) => {
+    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'registrar' }] };
+    if (statement.includes('FROM dbo.student_subjects')) return { recordset: [{ id: 80, student_id: 10, status: 'archived' }] };
+    throw new Error(`Unexpected query: ${statement}`);
+  });
+  await assert.rejects(archivedGrade.service.saveGrade(7, {
+    studentId: '10', studentSubjectId: '80', gradingPeriod: 'Quarter A', gradeValue: '92.50'
+  }), /Archived students cannot receive new academic records/);
+  assert.equal(archivedGrade.log.rolledBack, true);
+  const enrollmentSubjectRead = archivedGrade.log.queries.find(({ statement }) => statement.includes('FROM dbo.student_subjects'));
+  assert.match(enrollmentSubjectRead.statement, /st\.status/);
+  assert.match(enrollmentSubjectRead.statement, /dbo\.students AS st WITH \(UPDLOCK, HOLDLOCK\)/);
+  assert.equal(archivedGrade.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.grades') || statement.includes('UPDATE dbo.grades')), false);
+  assert.equal(archivedGrade.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
 });
 
 test('grade upsert binds the staff period and requires an enrollment subject belonging to that student', async () => {
@@ -312,14 +355,20 @@ test('catalog reads follow role rules, mutations require CSRF, and rendered cata
     const cookie = await signIn(baseUrl, 'database_admin');
     const page = await fetch(`${baseUrl}/records/subjects`, { headers: { cookie } });
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-    const denied = await postForm(baseUrl, '/records/subjects', cookie, { subjectCode: 'X1', subjectName: 'Test' });
-    assert.equal(denied.status, 403);
+    const html = await page.text();
+    assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.match(html, /action="\/records\/subjects"/);
+    const saved = await postForm(baseUrl, '/records/subjects', cookie, {
+      _csrf: csrfFromHtml(html), subjectCode: 'X1', subjectName: 'Test'
+    });
+    assert.equal(saved.status, 303);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0][0], 7);
   });
-  assert.equal(writes.length, 0);
+  assert.equal(writes.length, 1);
 });
 
-test('academic student view renders enrollment subjects and grades with registrar-only forms', async () => {
+test('academic student view renders subject and grade forms for registrars and database administrators', async () => {
   const academicRecordsService = {
     async getStudentAcademicRecord() {
       return {
@@ -341,8 +390,11 @@ test('academic student view renders enrollment subjects and grades with registra
     assert.equal(page.status, 200);
     const html = await page.text();
     assert.match(html, /Enrollment history/);
+    assert.match(html, /CS1 · Computer Science/);
     assert.match(html, /Registrar label/);
     assert.match(html, /Quarter A/);
+    assert.match(html, /<summary>Manage grades<\/summary>/);
+    assert.doesNotMatch(html, /<details[^>]*\bopen\b/);
     assert.match(html, /action="\/records\/grades"/);
     assert.match(html, /action="\/records\/student-subjects"/);
   });
@@ -352,7 +404,68 @@ test('academic student view renders enrollment subjects and grades with registra
     const page = await fetch(`${baseUrl}/records/students/10/academic`, { headers: { cookie } });
     assert.equal(page.status, 200);
     const html = await page.text();
+    assert.match(html, /CS1 · Computer Science/);
     assert.match(html, /Quarter A/);
+    assert.match(html, /action="\/records\/grades"/);
+    assert.match(html, /action="\/records\/student-subjects"/);
+  });
+});
+
+test('academic grade disclosures reopen when saving returns a validation error', async () => {
+  const academicRecordsService = {
+    async getStudentAcademicRecord() {
+      return {
+        student: { id: 10, student_no: 'S-10', first_name: 'Ari', last_name: 'Lee', status: 'active' },
+        subjects: [],
+        enrollments: [{
+          id: 22, school_year: '2026-2027', term: 'First', is_current: true,
+          section_name: 'Section A', enrollment_status: 'enrolled',
+          subjects: [{ id: 80, subjectId: 4, subjectCode: 'CS1', subjectName: 'Computer Science', units: 3, grades: [] }]
+        }]
+      };
+    },
+    async saveGrade() { throw new AcademicRecordsError('Enter a grade from 0 to 100.', 400); }
+  };
+  const studentRecordsService = { async listWorkspace() { return {}; } };
+  await withServer(createApp({ databasePool: makeAuthPool('registrar'), environment, studentRecordsService, academicRecordsService }), async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'registrar');
+    const page = await fetch(`${baseUrl}/records/students/10/academic`, { headers: { cookie } });
+    const html = await page.text();
+    const response = await postForm(baseUrl, '/records/grades', cookie, {
+      _csrf: csrfFromHtml(html), studentId: '10', studentSubjectId: '80', gradingPeriod: 'Quarter A', gradeValue: '101'
+    });
+    const errorHtml = await response.text();
+    assert.equal(response.status, 400);
+    assert.match(errorHtml, /Enter a grade from 0 to 100\./);
+    assert.match(errorHtml, /<details class="academic-grade-disclosure" open>/);
+    assert.match(errorHtml, /name="gradingPeriod"/);
+  });
+});
+
+test('archived academic records retain history but hide grade and subject write forms', async () => {
+  const academicRecordsService = {
+    async getStudentAcademicRecord() {
+      return {
+        student: { id: 10, student_no: 'S-10', first_name: 'Ari', last_name: 'Lee', status: 'archived' },
+        subjects: [{ id: 4, subject_code: 'CS1', subject_name: 'Computer Science', units: 3 }],
+        enrollments: [{
+          id: 22, school_year: '2026-2027', term: 'First', is_current: false,
+          section_name: 'Section A', enrollment_status: 'enrolled',
+          subjects: [{ id: 80, subjectId: 4, subjectCode: 'CS1', subjectName: 'Computer Science', units: 3,
+            grades: [{ id: 91, gradingPeriod: 'Quarter A', gradeValue: 92.5, remarks: 'Good progress' }] }]
+        }]
+      };
+    }
+  };
+  const studentRecordsService = { async listWorkspace() { return {}; } };
+  await withServer(createApp({ databasePool: makeAuthPool('registrar'), environment, studentRecordsService, academicRecordsService }), async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'registrar');
+    const page = await fetch(`${baseUrl}/records/students/10/academic`, { headers: { cookie } });
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.match(html, /Existing enrollments, subjects, and grades are available for review/);
+    assert.match(html, /Quarter A/);
+    assert.match(html, /Good progress/);
     assert.doesNotMatch(html, /action="\/records\/grades"/);
     assert.doesNotMatch(html, /action="\/records\/student-subjects"/);
   });

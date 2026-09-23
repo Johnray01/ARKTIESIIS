@@ -138,6 +138,8 @@ The palette pairs a deep school crimson with cool gray-white surfaces and dark, 
 
 The header, footer, and page content share a maximum width of 72rem. On wide screens, the homepage pairs its introduction and sign-in action with a prominent building image; authentication pages pair task context with the form. At 760px and below, each layout stacks into one column. The homepage image uses a 3:2 crop on desktop and a 4:3 crop on narrow screens. At 400px and below, the seal and brand type reduce while keeping the full school name readable. The 320px minimum layout has been checked for horizontal overflow.
 
+Authenticated workspaces use compact top spacing so their page heading and primary task remain visible near the navigation. Record tables wrap related actions together and present student and enrollment states in readable labels. On existing student profiles, registrars see the student number as read-only; new profiles still accept a number, and database administrators can correct one. On a finance account page, the account is the primary content and the back link returns to the prior filtered workspace. Academic grade history stays visible while its edit and add forms are grouped in a native disclosure; validation errors reopen that disclosure.
+
 ## Elevation & Depth
 
 The interface is flat. Neutral borders separate panels and controls; there are no decorative shadows. Focus is shown with a clear outline rather than elevation.
@@ -167,7 +169,8 @@ Controls use gently rounded corners; the authentication surface and image use a 
 - **Error / Disabled:** Errors use an inline alert with a pale crimson wash and dark crimson text; disabled buttons are visibly subdued.
 
 ### Navigation
-- **Style:** The masthead is a single home link containing the unmodified school seal, ARKTIESIIS name, full institution name, and branch. It wraps cleanly without adding role navigation.
+- **Style:** The masthead keeps the unmodified school seal, ARKTIESIIS name, full institution name, and branch. Public pages link the brand to home; authenticated pages link it to the role dashboard. A compact shared navigation row exposes only existing destinations for the signed-in role, marks the current destination, and keeps CSRF-protected sign-out separate from page links.
+- **Flow:** Detail forms use fixed parent links to their existing workspace pages. Authentication and error pages offer a direct recovery destination without relying on browser history or referrer values.
 
 ### Homepage Image
 - **Style:** The edited school-building photograph is presented as a wide, responsive image with a descriptive caption and alt text. The source image and school mark are recorded separately in `public/images/README.md`.

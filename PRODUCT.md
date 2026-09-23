@@ -32,6 +32,7 @@ This is a thesis project. The current application implements authentication, dat
 - The fixed stack is Node.js, Express, EJS, HTML, CSS, JavaScript, and Microsoft SQL Server, with Google Document AI for the planned document workflow.
 - Authentication uses bcrypt passwords, sessions, CSRF checks, role authorization, and email two-factor authentication outside the explicitly enabled development password bypass.
 - Students may access only their permitted documents. Form 137 is restricted to authorized staff. Finance access is limited to the role's required data.
+- Registrars may set a student number when creating a profile but cannot change it on an existing profile. Database administrators may correct existing student numbers.
 - AI scope is OCR/text extraction, required-field checks, completeness validation, and configured format/compliance checks. It does not establish authenticity, detect forgery, or verify signatures or seals. Human review remains part of acceptance when needed.
 - Keep protected-route authorization on the server. Use parameterized SQL, validate inputs, and keep secrets in environment variables.
 

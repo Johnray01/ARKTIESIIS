@@ -1,11 +1,11 @@
 <%- include('../partials/head', { title }) %>
 <main class="page-shell dashboard-page admin-page" id="main-content">
+  <a class="context-back" href="/admin#users-title">Back to accounts</a>
   <section class="dashboard-heading">
     <div>
       <h1>Manage user account</h1>
       <p>Account #<%= user.id %><% if (user.created_at) { %> · Created <%= new Date(user.created_at).toLocaleDateString() %><% } %></p>
     </div>
-    <a class="button button--secondary" href="/admin">Back to administration</a>
   </section>
 
   <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
@@ -25,7 +25,7 @@
           <label for="role">Role</label>
           <select id="role" name="role" required>
             <% for (const role of ['database_admin', 'registrar', 'finance', 'student']) { %>
-              <option value="<%= role %>" <%= user.role === role ? 'selected' : '' %>><%= role.replaceAll('_', ' ') %></option>
+              <option value="<%= role %>" <%= user.role === role ? 'selected' : '' %>><%= role.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) %></option>
             <% } %>
           </select>
         </div>
@@ -61,7 +61,7 @@
       </label>
       <div class="admin-form-actions">
         <button class="button button--primary" type="submit">Save account</button>
-        <a class="button button--secondary" href="/admin">Cancel</a>
+        <a class="button button--secondary" href="/admin#users-title">Cancel</a>
       </div>
     </form>
   </section>
@@ -69,17 +69,18 @@
   <section class="admin-form-section" aria-labelledby="password-reset-title">
     <h2 id="password-reset-title">Reset password</h2>
     <p>Set a new password for this account. Pending email sign-in codes will be invalidated.</p>
-    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>/password">
+    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>/password" data-password-match-form>
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="admin-form-grid">
         <div class="field">
           <label for="new-password">New password</label>
-          <input id="new-password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="new-password-help">
+          <input id="new-password" name="password" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="new-password-help" data-password-source>
           <span id="new-password-help" class="field-help">Use 12 to 72 UTF-8 bytes.</span>
         </div>
         <div class="field">
           <label for="confirm-password">Confirm new password</label>
-          <input id="confirm-password" name="confirmPassword" type="password" minlength="12" maxlength="72" autocomplete="new-password" required>
+          <input id="confirm-password" name="confirmPassword" type="password" minlength="12" maxlength="72" autocomplete="new-password" required aria-describedby="new-password-mismatch" data-password-confirm>
+          <span id="new-password-mismatch" class="password-match-error" data-password-mismatch-message aria-live="polite" aria-atomic="true"></span>
         </div>
       </div>
       <button class="button button--secondary button--align-start" type="submit">Reset password</button>

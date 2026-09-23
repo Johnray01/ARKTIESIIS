@@ -94,11 +94,24 @@ Only active `database_admin` accounts can use `/admin`. Administrators can searc
 
 Staff accounts use `staff_profiles`. A student login can only be attached to an existing unlinked `students` record by student number. Changing a student account to a staff role clears that login link and preserves the student record and its academic history. Student record creation and editing remain in Phase 5. Existing databases need no Phase 4 migration.
 
-## Phase 7 finance
+## Finance workspace
 
-Only active `finance` accounts can use `/finance`; students, registrars, and database administrators are denied. Finance staff can search by student number or name (up to 100 results), open an existing financial account, or explicitly create one. Account pages show the student's finance identifiers, balance, and up to 100 latest transactions without academic records.
+Active `finance` and `database_admin` accounts can use `/finance`; students and registrars are denied. Finance staff and database administrators can search by student number or name (up to 100 results), open an existing financial account, or explicitly create one. Account pages show the student's finance identifiers, balance, and up to 100 latest transactions without academic records.
 
 Charges and payments require a positive PHP amount; charges increase the balance and payments decrease it. Adjustments accept a nonzero positive or negative PHP amount and require a description explaining the reason. All amounts allow up to two decimal places within the `DECIMAL(12,2)` limit. Negative balances represent credits. Account creation, transaction insertion, balance updates, and audit events use serializable database transactions and commit together. A nonempty reference number can be used once per account after trimming; duplicate matching follows the SQL Server database collation, while reuse on another account is allowed. Existing databases need no Phase 7 migration because the baseline already includes the required financial tables.
+
+Database administrators can archive a student record after typing its student number to confirm. The operation keeps academic and finance history, marks the record archived, disables its linked student login, and consumes pending sign-in codes. Registrars can disable a linked student login separately; they cannot archive the master record. Archived profiles cannot be edited or receive new enrollments.
+
+## Development demo data
+
+Preview and seed clearly labeled sample records using the guarded development-only script:
+
+```bash
+npm run demo:seed -- --dry-run
+npm run demo:seed -- --apply
+```
+
+Both commands require `NODE_ENV=development`; database writes require the explicit `--apply` flag. `SMTP_USER` must be a valid Gmail or Googlemail address so the script can derive separate plus-address aliases. On first apply, random passwords and aliases are saved in ignored `.env.demo` with owner-only permissions and are never printed. The seed includes three fake students, demo academic records, and a matching finance ledger. It creates no documents or Document AI records. Re-running after a successful seed adds nothing; conflicting pre-existing demo keys abort the transaction without changing existing data. See [scripts/README.md](scripts/README.md).
 
 ## Current starter status
 This repository contains the project foundation, email authentication, database administration, student and academic records, and the Phase 7 finance workspace. Document upload and Document AI workflows remain for later phases.

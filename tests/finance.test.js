@@ -45,13 +45,13 @@ function transactionalService(onQuery) {
   };
 }
 
-function transactionFixture({ actorRole = 'finance', balance = '10.00', duplicate = false, failAt = null, studentExists = true, accountExists = false, transactionAccountExists = true } = {}) {
+function transactionFixture({ actorRole = 'finance', balance = '10.00', duplicate = false, failAt = null, studentExists = true, studentStatus = 'active', accountExists = false, transactionAccountExists = true } = {}) {
   let stateBalance = balance;
   const { service, log } = transactionalService(({ statement, values }) => {
     if (statement.includes('FROM dbo.users')) return { recordset: actorRole ? [{ id: 7, role: actorRole }] : [] };
-    if (statement.includes('FROM dbo.students WITH')) return { recordset: studentExists ? [{ id: 22 }] : [] };
+    if (statement.includes('FROM dbo.students WITH')) return { recordset: studentExists ? [{ id: 22, status: studentStatus }] : [] };
     if (statement.includes('FROM dbo.financial_accounts WITH')) return { recordset: accountExists ? [{ id: 30 }] : [] };
-    if (statement.includes('FROM dbo.financial_accounts AS a')) return { recordset: transactionAccountExists ? [{ financial_account_id: 30, balance: stateBalance }] : [] };
+    if (statement.includes('FROM dbo.financial_accounts AS a')) return { recordset: transactionAccountExists ? [{ financial_account_id: 30, balance: stateBalance, status: studentStatus }] : [] };
     if (statement.includes('FROM dbo.financial_transactions WITH')) return { recordset: duplicate ? [{ id: 90 }] : [] };
     if (statement.includes('UPDATE dbo.financial_accounts')) {
       if (failAt === 'update') throw new Error('simulated account update failure');
@@ -126,7 +126,7 @@ test('account and transaction history read paths return only the selected studen
         input(name, _type, value) { values[name] = value; return this; },
         async query(statement) {
           calls.push({ statement, values: { ...values } });
-          if (statement.includes('FROM dbo.students')) return { recordset: [{ student_id: 22, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim' }] };
+          if (statement.includes('FROM dbo.students')) return { recordset: [{ student_id: 22, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim', status: 'archived' }] };
           if (statement.includes('FROM dbo.financial_accounts')) return { recordset: [{ financial_account_id: 30, balance: '-2.50' }] };
           if (statement.includes('FROM dbo.financial_transactions')) return { recordset: [{ id: 90, transaction_type: 'adjustment', amount: '-2.50' }] };
           throw new Error(`Unexpected query: ${statement}`);
@@ -137,9 +137,11 @@ test('account and transaction history read paths return only the selected studen
   const service = createFinanceService({ getPool: async () => pool, sql: fakeSql() });
   const record = await service.getStudentAccount('22');
   assert.equal(record.student.student_no, 'S-22');
+  assert.equal(record.student.status, 'archived');
   assert.equal(record.account.balance, '-2.50');
   assert.equal(record.transactions[0].transaction_type, 'adjustment');
   assert.deepEqual(calls.map(({ values }) => Object.values(values)), [[22], [22], [30]]);
+  assert.match(calls[0].statement, /student_no, first_name, middle_name, last_name, suffix, status/);
   assert.doesNotMatch(calls.map(({ statement }) => statement).join('\n'), /grade|enrollment|document|birth_date|address/);
   await assert.rejects(service.getStudentAccount('../22'), /not found/);
 });
@@ -160,17 +162,17 @@ test('account creation is finance-checked, student-owned, serializable, and audi
   assert.equal(JSON.parse(audit.values.detailsJson).studentId, 22);
 });
 
-test('non-finance or inactive finance actors cannot create accounts or record transactions', async () => {
+test('registrar actors cannot write finance data while database administrators can', async () => {
   const deniedAccount = transactionFixture({ actorRole: 'registrar' });
   await assert.rejects(deniedAccount.service.createAccount(7, '22'), /finance access is no longer active/i);
   assert.equal(deniedAccount.log.rolledBack, true);
   assert.equal(deniedAccount.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.financial_accounts')), false);
   assert.equal(deniedAccount.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
 
-  const deniedTransaction = transactionFixture({ actorRole: 'database_admin' });
-  await assert.rejects(deniedTransaction.service.recordTransaction(7, '22', { transactionType: 'charge', amount: '1.00' }), /finance access is no longer active/i);
-  assert.equal(deniedTransaction.log.rolledBack, true);
-  assert.equal(deniedTransaction.log.queries.some(({ statement }) => statement.includes('UPDATE dbo.financial_accounts')), false);
+  const adminTransaction = transactionFixture({ actorRole: 'database_admin' });
+  await adminTransaction.service.recordTransaction(7, '22', { transactionType: 'charge', amount: '1.00' });
+  assert.equal(adminTransaction.log.committed, true);
+  assert.equal(adminTransaction.log.queries.at(-1).values.action, 'database_admin.finance_transaction_recorded');
 });
 
 test('account creation rejects missing students and existing accounts without writes', async () => {
@@ -183,6 +185,27 @@ test('account creation rejects missing students and existing accounts without wr
   await assert.rejects(existing.service.createAccount(7, '22'), /already has a financial account/);
   assert.equal(existing.log.rolledBack, true);
   assert.equal(existing.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.financial_accounts')), false);
+});
+
+test('archived students cannot receive new finance accounts or ledger entries', async () => {
+  const archivedAccount = transactionFixture({ studentStatus: 'archived' });
+  await assert.rejects(archivedAccount.service.createAccount(7, '22'), /Archived students cannot receive new finance records/);
+  assert.equal(archivedAccount.log.rolledBack, true);
+  const studentRead = archivedAccount.log.queries.find(({ statement }) => statement.includes('FROM dbo.students WITH'));
+  assert.match(studentRead.statement, /SELECT id, status/);
+  assert.match(studentRead.statement, /UPDLOCK, HOLDLOCK/);
+  assert.equal(archivedAccount.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.financial_accounts')), false);
+  assert.equal(archivedAccount.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
+
+  const archivedLedger = transactionFixture({ studentStatus: 'archived' });
+  await assert.rejects(archivedLedger.service.recordTransaction(7, '22', { transactionType: 'charge', amount: '1.00' }), /Archived students cannot receive new finance records/);
+  assert.equal(archivedLedger.log.rolledBack, true);
+  const accountRead = archivedLedger.log.queries.find(({ statement }) => statement.includes('FROM dbo.financial_accounts AS a'));
+  assert.match(accountRead.statement, /s\.status/);
+  assert.match(accountRead.statement, /dbo\.students AS s WITH \(UPDLOCK, HOLDLOCK\)/);
+  assert.equal(archivedLedger.log.queries.some(({ statement }) => statement.includes('UPDATE dbo.financial_accounts')), false);
+  assert.equal(archivedLedger.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.financial_transactions')), false);
+  assert.equal(archivedLedger.log.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.audit_logs')), false);
 });
 
 test('charges, payments, and signed adjustments update balance in the correct direction', async () => {
@@ -309,13 +332,13 @@ async function signIn(baseUrl, role) {
   return cookieFrom(response);
 }
 
-test('finance routes permit finance staff only and protect all writes with CSRF', async () => {
+test('finance routes permit finance staff and database administrators and protect all writes with CSRF', async () => {
   const calls = [];
   const financeService = {
     async searchStudents(searchTerm) { calls.push(['search', searchTerm]); return { students: [], searchTerm }; },
     async getStudentAccount(studentId) {
       calls.push(['read', studentId]);
-      return { student: { student_id: studentId, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim' }, account: null, transactions: [] };
+      return { student: { student_id: studentId, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim', status: 'active' }, account: null, transactions: [] };
     },
     async createAccount(actorId, studentId) { calls.push(['create', actorId, studentId]); return 30; },
     async recordTransaction(actorId, studentId, input) { calls.push(['record', actorId, studentId, input]); return {}; }
@@ -333,6 +356,8 @@ test('finance routes permit finance staff only and protect all writes with CSRF'
     const accountHtml = await accountPage.text();
     assert.equal(accountPage.status, 200);
     assert.match(accountHtml, /Create financial account/);
+    assert.match(accountHtml, /Financial account/);
+    assert.doesNotMatch(accountHtml, /id="finance-search-heading"/);
     const missingCsrf = await fetch(`${baseUrl}/finance/students/22/account`, {
       method: 'POST', redirect: 'manual', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body: ''
     });
@@ -353,7 +378,7 @@ test('finance routes permit finance staff only and protect all writes with CSRF'
   });
 
   const serviceCallsBeforeDeniedRequests = calls.length;
-  for (const role of ['student', 'registrar', 'database_admin']) {
+  for (const role of ['student', 'registrar']) {
     const app = createApp({ databasePool: makeAuthPool(role), environment, financeService });
     await withServer(app, async (baseUrl) => {
       const cookie = await signIn(baseUrl, role);
@@ -365,5 +390,49 @@ test('finance routes permit finance staff only and protect all writes with CSRF'
       assert.equal(write.status, 403, `${role} must be denied finance writes`);
     });
   }
-  assert.equal(calls.length, serviceCallsBeforeDeniedRequests, 'denied roles must not load or mutate finance records');
+  await withServer(createApp({ databasePool: makeAuthPool('database_admin'), environment, financeService }), async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'database_admin');
+    const accountPage = await fetch(`${baseUrl}/finance/students/22`, { headers: { cookie } });
+    const html = await accountPage.text();
+    assert.equal(accountPage.status, 200);
+    assert.match(html, /Create financial account/);
+    const response = await fetch(`${baseUrl}/finance/students/22/account`, {
+      method: 'POST', redirect: 'manual', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ _csrf: csrfFrom(html) })
+    });
+    assert.equal(response.status, 303);
+    assert.ok(calls.some((call) => call[0] === 'create' && call[1] === 7));
+  });
+  assert.ok(calls.length > serviceCallsBeforeDeniedRequests, 'database administrator finance request should reach the service');
+});
+
+test('archived finance records stay readable without write controls and retain the bounded search', async () => {
+  const financeService = {
+    async searchStudents(searchTerm) {
+      return { searchTerm, students: [{ student_id: 22, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim' }] };
+    },
+    async getStudentAccount(studentId) {
+      return {
+        student: { student_id: studentId, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim', status: 'archived' },
+        account: { financial_account_id: 30, balance: '15.00' },
+        transactions: [{ id: 91, transaction_type: 'charge', amount: '15.00', description: 'Archived history', recorded_by_name: 'Staff' }]
+      };
+    }
+  };
+
+  await withServer(createApp({ databasePool: makeAuthPool('finance'), environment, financeService }), async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'finance');
+    const workspace = await fetch(`${baseUrl}/finance?search=Alex%20Kim`, { headers: { cookie } });
+    const workspaceHtml = await workspace.text();
+    assert.match(workspaceHtml, /href="\/finance\/students\/22\?search=Alex%20Kim"/);
+
+    const account = await fetch(`${baseUrl}/finance/students/22?search=Alex%20Kim`, { headers: { cookie } });
+    const accountHtml = await account.text();
+    assert.match(accountHtml, /href="\/finance\?search=Alex%20Kim">Back to finance workspace/);
+    assert.doesNotMatch(accountHtml, /id="finance-search-heading"/);
+    assert.match(accountHtml, /Archived history/);
+    assert.match(accountHtml, /new accounts and transactions are disabled/i);
+    assert.doesNotMatch(accountHtml, /action="\/finance\/students\/22\/account/);
+    assert.doesNotMatch(accountHtml, /action="\/finance\/students\/22\/transactions/);
+  });
 });

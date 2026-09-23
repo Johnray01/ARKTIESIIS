@@ -1,6 +1,7 @@
 const { getPool: defaultGetPool, sql: defaultSql } = require('../config/database');
 
 const ID_PATTERN = /^\d{1,10}$/;
+const ACADEMIC_WRITER_ROLES = new Set(['database_admin', 'registrar']);
 
 class AcademicRecordsError extends Error {
   constructor(message, status = 400) {
@@ -141,25 +142,26 @@ function createAcademicRecordsService({
     }
   }
 
-  async function requireRegistrar(transaction, actorId) {
+  async function requireAcademicWriter(transaction, actorId) {
     const id = normalizeId(actorId);
-    if (!id) throw new AcademicRecordsError('Registrar access is required.', 403);
+    if (!id) throw new AcademicRecordsError('Academic record access is required.', 403);
     const result = await transaction.request()
       .input('actorId', sql.Int, id)
+      .input('databaseAdminRole', sql.NVarChar(30), 'database_admin')
       .input('registrarRole', sql.NVarChar(30), 'registrar')
       .query(`SELECT id, role FROM dbo.users WITH (UPDLOCK, HOLDLOCK)
-        WHERE id = @actorId AND is_active = 1 AND role = @registrarRole`);
+        WHERE id = @actorId AND is_active = 1 AND role IN (@databaseAdminRole, @registrarRole)`);
     const actor = result.recordset?.[0];
-    if (!actor || actor.role !== 'registrar') {
-      throw new AcademicRecordsError('Registrar access is no longer active. Sign in again.', 403);
+    if (!actor || !ACADEMIC_WRITER_ROLES.has(actor.role)) {
+      throw new AcademicRecordsError('Academic record access is no longer active. Sign in again.', 403);
     }
     return actor;
   }
 
-  async function writeAudit(transaction, { actorId, action, entityType, entityId, details }) {
+  async function writeAudit(transaction, { actorId, actorRole, action, entityType, entityId, details }) {
     await transaction.request()
       .input('actorId', sql.Int, actorId)
-      .input('action', sql.NVarChar(100), `registrar.${action}`)
+      .input('action', sql.NVarChar(100), `${actorRole}.${action}`)
       .input('entityType', sql.NVarChar(100), entityType)
       .input('entityId', sql.NVarChar(100), String(entityId))
       .input('detailsJson', sql.NVarChar(sql.MAX), JSON.stringify(details || {}))
@@ -264,7 +266,7 @@ function createAcademicRecordsService({
     }
     const subject = validateSubject(input);
     return runTransaction(async (transaction) => {
-      const actor = await requireRegistrar(transaction, actorId);
+      const actor = await requireAcademicWriter(transaction, actorId);
       if (subjectId !== null) {
         const current = await transaction.request().input('subjectId', sql.Int, subjectId)
           .query('SELECT id FROM dbo.subjects WITH (UPDLOCK, HOLDLOCK) WHERE id = @subjectId');
@@ -297,7 +299,7 @@ function createAcademicRecordsService({
             subject_name = @subjectName, units = @units WHERE id = @subjectId`);
       }
       await writeAudit(transaction, {
-        actorId, action: subjectId === null ? 'subject_created' : 'subject_updated',
+        actorId, actorRole: actor.role, action: subjectId === null ? 'subject_created' : 'subject_updated',
         entityType: 'subject', entityId: savedId, details: { subjectCode: subject.subjectCode }
       });
       return savedId;
@@ -307,13 +309,17 @@ function createAcademicRecordsService({
   async function assignSubject(actorId, input) {
     const assignment = validateAssignment(input);
     return runTransaction(async (transaction) => {
-      const actor = await requireRegistrar(transaction, actorId);
+      const actor = await requireAcademicWriter(transaction, actorId);
       const enrollment = await transaction.request()
         .input('enrollmentId', sql.Int, assignment.enrollmentId)
         .input('studentId', sql.Int, assignment.studentId)
-        .query(`SELECT e.id, e.student_id FROM dbo.enrollments AS e WITH (UPDLOCK, HOLDLOCK)
+        .query(`SELECT e.id, e.student_id, st.status FROM dbo.enrollments AS e WITH (UPDLOCK, HOLDLOCK)
+          INNER JOIN dbo.students AS st WITH (UPDLOCK, HOLDLOCK) ON st.id = e.student_id
           WHERE e.id = @enrollmentId AND e.student_id = @studentId`);
       if (!enrollment.recordset?.length) throw new AcademicRecordsError('Enrollment not found for this student.', 404);
+      if (enrollment.recordset[0].status === 'archived') {
+        throw new AcademicRecordsError('Archived students cannot receive new academic records.', 409);
+      }
       const subject = await transaction.request().input('subjectId', sql.Int, assignment.subjectId)
         .query('SELECT id FROM dbo.subjects WITH (UPDLOCK, HOLDLOCK) WHERE id = @subjectId');
       if (!subject.recordset?.length) throw new AcademicRecordsError('Subject not found.', 404);
@@ -331,7 +337,7 @@ function createAcademicRecordsService({
       const assignmentId = result.recordset?.[0]?.id;
       if (!assignmentId) throw new Error('Enrollment subject insert returned no identifier.');
       await writeAudit(transaction, {
-        actorId, action: 'subject_assigned', entityType: 'student_subject', entityId: assignmentId,
+        actorId, actorRole: actor.role, action: 'subject_assigned', entityType: 'student_subject', entityId: assignmentId,
         details: { studentId: assignment.studentId, enrollmentId: assignment.enrollmentId, subjectId: assignment.subjectId }
       });
       return assignment.studentId;
@@ -341,15 +347,19 @@ function createAcademicRecordsService({
   async function saveGrade(actorId, input) {
     const grade = validateGrade(input);
     return runTransaction(async (transaction) => {
-      const actor = await requireRegistrar(transaction, actorId);
+      const actor = await requireAcademicWriter(transaction, actorId);
       const enrollmentSubject = await transaction.request()
         .input('studentSubjectId', sql.Int, grade.studentSubjectId)
         .input('studentId', sql.Int, grade.studentId)
-        .query(`SELECT ss.id, e.student_id FROM dbo.student_subjects AS ss WITH (UPDLOCK, HOLDLOCK)
+        .query(`SELECT ss.id, e.student_id, st.status FROM dbo.student_subjects AS ss WITH (UPDLOCK, HOLDLOCK)
           INNER JOIN dbo.enrollments AS e WITH (UPDLOCK, HOLDLOCK) ON e.id = ss.enrollment_id
+          INNER JOIN dbo.students AS st WITH (UPDLOCK, HOLDLOCK) ON st.id = e.student_id
           WHERE ss.id = @studentSubjectId AND e.student_id = @studentId`);
       if (!enrollmentSubject.recordset?.length) {
         throw new AcademicRecordsError('Enrollment subject not found for this student.', 404);
+      }
+      if (enrollmentSubject.recordset[0].status === 'archived') {
+        throw new AcademicRecordsError('Archived students cannot receive new academic records.', 409);
       }
       let existing;
       if (grade.gradeId !== null) {
@@ -404,7 +414,7 @@ function createAcademicRecordsService({
         if (!gradeId) throw new Error('Grade insert returned no identifier.');
       }
       await writeAudit(transaction, {
-        actorId: actor.id, action, entityType: 'grade', entityId: gradeId,
+        actorId: actor.id, actorRole: actor.role, action, entityType: 'grade', entityId: gradeId,
         details: { studentId: grade.studentId, studentSubjectId: grade.studentSubjectId, gradingPeriod: grade.gradingPeriod }
       });
       return grade.studentId;

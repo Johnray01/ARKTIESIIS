@@ -5,14 +5,6 @@
       <h1>Database administration</h1>
       <p>Signed in as <%= currentUser.email %></p>
     </div>
-    <div class="admin-heading-actions">
-      <a class="button button--secondary" href="/records">Student records</a>
-      <a class="button button--primary" href="/admin/users/new">Create account</a>
-      <form method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button class="button button--secondary" type="submit">Sign out</button>
-      </form>
-    </div>
   </section>
 
   <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
@@ -45,7 +37,7 @@
               <tr>
                 <td data-label="Name"><%= user.display_name %></td>
                 <td data-label="Email"><%= user.email %></td>
-                <td data-label="Role"><%= user.role.replaceAll('_', ' ') %></td>
+                <td data-label="Role"><%= user.role.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) %></td>
                 <td data-label="Status"><span class="account-status <%= user.is_active ? 'account-status--active' : 'account-status--inactive' %>"><%= user.is_active ? 'Active' : 'Inactive' %></span></td>
                 <td data-label="Created"><%= user.created_at ? new Date(user.created_at).toLocaleDateString() : '—' %></td>
                 <td data-label="Actions"><a class="table-action" href="/admin/users/<%= user.id %>/edit">Manage</a></td>
@@ -76,7 +68,7 @@
               <tr>
                 <td data-label="When"><%= event.created_at ? new Date(event.created_at).toLocaleString() : '—' %></td>
                 <td data-label="Actor"><%= event.actor_email || `User ${event.user_id || 'system'}` %></td>
-                <td data-label="Action"><%= event.action %></td>
+                <td data-label="Action"><%= (event.action || 'Unknown').replaceAll('.', ' · ').replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></td>
                 <td data-label="Record"><%= event.entity_type || '—' %><%= event.entity_id ? ` #${event.entity_id}` : '' %></td>
               </tr>
             <% } %>

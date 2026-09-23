@@ -113,7 +113,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     return { allowed: true, codeId: challenge.codeId };
   };
 
-  router.use('/finance', requireAuth, requireRole('finance'), createFinanceRouter({ getPool, sql, financeService: financesService }));
+  router.use('/finance', requireAuth, requireRole('finance', 'database_admin'), createFinanceRouter({ getPool, sql, financeService: financesService }));
   router.use('/admin', requireAuth, requireRole('database_admin'), createAdminRouter({ getPool, sql, adminService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createStudentRecordsRouter({ getPool, sql, studentRecordsService: recordsService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createAcademicRecordsRouter({ getPool, sql, academicRecordsService: academicsService }));
@@ -302,6 +302,19 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     destroySession(req, res, environment, (error) => {
       if (error) {
         return res.status(500).render('error', { title: 'Error', message: 'Logout could not be completed.' });
+      }
+      return res.redirect(303, '/login');
+    });
+  });
+
+  router.post('/login/verify/cancel', (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+
+    destroySession(req, res, environment, (error) => {
+      if (error) {
+        return res.status(500).render('error', { title: 'Error', message: 'The sign-in attempt could not be cleared.' });
       }
       return res.redirect(303, '/login');
     });

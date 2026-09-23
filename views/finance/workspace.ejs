@@ -1,44 +1,53 @@
 <%- include('../partials/head', { title }) %>
 <main class="page-shell dashboard-page finance-page" id="main-content">
+  <% if (student) { %><a class="context-back" href="/finance<%= searchSuffix %>">Back to finance workspace</a><% } %>
   <section class="dashboard-heading">
-    <h1>Finance workspace</h1>
-    <p>Search for a student by student number or name to view and manage financial account activity.</p>
+    <div>
+      <h1><%= student ? 'Financial account' : 'Finance workspace' %></h1>
+      <p><%= student ? 'Review this student account and its recorded transactions.' : 'Search for a student by student number or name to view and manage financial account activity.' %></p>
+    </div>
   </section>
 
   <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+  <% if (student?.status === 'archived') { %>
+    <p class="form-alert" role="status">This student record is archived. Existing financial account and transaction history is available for review; new accounts and transactions are disabled.</p>
+  <% } %>
 
-  <section class="finance-panel" aria-labelledby="finance-search-heading">
-    <h2 id="finance-search-heading">Find a student</h2>
-    <form class="finance-search" method="get" action="/finance">
-      <label class="field">
-        <span>Student number or name</span>
-        <input type="search" name="search" maxlength="100" value="<%= searchTerm %>" autocomplete="off" required>
-      </label>
-      <button class="button button--primary" type="submit">Search</button>
-    </form>
-    <% if (searchError) { %><p class="form-alert" role="alert"><%= searchError %></p><% } %>
-    <% if (searchTerm && !searchError && students.length === 0) { %><p>No matching students were found.</p><% } %>
-    <% if (students.length) { %>
-      <div class="table-scroll">
-        <table class="admin-table finance-table">
-          <thead><tr><th scope="col">Student number</th><th scope="col">Name</th><th scope="col">Account</th><th scope="col">Balance</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
-          <tbody>
-            <% students.forEach((result) => { %>
-              <tr>
-                <td data-label="Student number"><%= result.student_no %></td>
-                <td data-label="Name"><%= [result.first_name, result.middle_name, result.last_name, result.suffix].filter(Boolean).join(' ') %></td>
-                <td data-label="Account"><%= result.financial_account_id ? 'Open' : 'Not created' %></td>
-                <td data-label="Balance"><%= result.balance ? `PHP ${result.balance}` : '—' %></td>
-                <td data-label="Action"><a class="table-action" href="/finance/students/<%= result.student_id %>">View finance account</a></td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
-      </div>
-      <p class="finance-caption">Showing at most 100 matches. Add more of the student's name or number to narrow the search.</p>
-    <% } %>
-  </section>
+  <% if (!student) { %>
+    <section class="finance-panel" aria-labelledby="finance-search-heading">
+      <h2 id="finance-search-heading">Find a student</h2>
+      <form class="finance-search" method="get" action="/finance">
+        <label class="field">
+          <span>Student number or name</span>
+          <input type="search" name="search" maxlength="100" value="<%= searchTerm %>" autocomplete="off" required>
+        </label>
+        <button class="button button--primary" type="submit">Search</button>
+      </form>
+      <% if (searchError) { %><p class="form-alert" role="alert"><%= searchError %></p><% } %>
+      <% if (searchTerm && !searchError && students.length === 0) { %><p class="empty-state">No matching students were found. Check the name or student number and search again.</p><% } %>
+      <% if (students.length) { %>
+        <div class="table-scroll" tabindex="0" aria-label="Finance search results">
+          <table class="admin-table finance-table">
+            <caption class="visually-hidden">Student search results and account summary</caption>
+            <thead><tr><th scope="col">Student number</th><th scope="col">Name</th><th scope="col">Account</th><th scope="col">Balance</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
+            <tbody>
+              <% students.forEach((result) => { %>
+                <tr>
+                  <td data-label="Student number"><%= result.student_no %></td>
+                  <td data-label="Name"><%= [result.first_name, result.middle_name, result.last_name, result.suffix].filter(Boolean).join(' ') %></td>
+                  <td data-label="Account"><%= result.financial_account_id ? 'Open' : 'Not created' %></td>
+                  <td data-label="Balance"><%= result.balance ? `PHP ${result.balance}` : '—' %></td>
+                  <td data-label="Action"><a class="table-action" href="/finance/students/<%= result.student_id %><%= searchSuffix %>">View finance account</a></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <p class="finance-caption">Showing at most 100 matches. Add more of the student's name or number to narrow the search.</p>
+      <% } %>
+    </section>
+  <% } %>
 
   <% if (student) { %>
     <section class="finance-panel finance-account" aria-labelledby="finance-account-heading">
@@ -60,17 +69,24 @@
       <% if (!account) { %>
         <div class="finance-empty">
           <h3>No financial account exists</h3>
-          <p>Create an account to begin recording charges, payments, and signed adjustments.</p>
-          <form method="post" action="/finance/students/<%= student.student_id %>/account">
-            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-            <button class="button button--primary" type="submit">Create financial account</button>
-          </form>
+          <% if (student.status === 'archived') { %>
+            <p>A financial account cannot be created for an archived student record.</p>
+          <% } else { %>
+            <p>Create an account to begin recording charges, payments, and signed adjustments.</p>
+            <form method="post" action="/finance/students/<%= student.student_id %>/account<%= searchSuffix %>">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="button button--primary" type="submit">Create financial account</button>
+            </form>
+          <% } %>
         </div>
       <% } else { %>
         <div class="finance-grid">
           <section aria-labelledby="finance-entry-heading">
-            <h3 id="finance-entry-heading">Record a transaction</h3>
-            <form class="form-stack finance-entry" method="post" action="/finance/students/<%= student.student_id %>/transactions">
+            <h3 id="finance-entry-heading"><%= student.status === 'archived' ? 'Transactions are read-only' : 'Record a transaction' %></h3>
+            <% if (student.status === 'archived') { %>
+              <p>New transactions are disabled for archived student records.</p>
+            <% } else { %>
+            <form class="form-stack finance-entry" method="post" action="/finance/students/<%= student.student_id %>/transactions<%= searchSuffix %>">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>">
               <label class="field">
                 <span>Transaction type</span>
@@ -98,6 +114,7 @@
               </label>
               <button class="button button--primary" type="submit">Record transaction</button>
             </form>
+            <% } %>
           </section>
 
           <section aria-labelledby="finance-history-heading">
@@ -105,14 +122,15 @@
             <% if (!transactions.length) { %>
               <p class="finance-empty-copy">No transactions have been recorded.</p>
             <% } else { %>
-              <div class="table-scroll">
+              <div class="table-scroll" tabindex="0" role="region" aria-label="Scrollable transaction history for <%= student.student_no %>">
                 <table class="admin-table finance-table finance-history-table">
+                  <caption class="visually-hidden">Recent financial transactions for <%= student.student_no %></caption>
                   <thead><tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Amount</th><th scope="col">Description / reference</th><th scope="col">Recorded by</th></tr></thead>
                   <tbody>
                     <% transactions.forEach((entry) => { %>
                       <tr>
                         <td data-label="Date"><%= entry.created_at ? new Date(entry.created_at).toLocaleString() : '' %></td>
-                        <td data-label="Type"><%= entry.transaction_type %></td>
+                        <td data-label="Type"><%= entry.transaction_type ? entry.transaction_type.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) : 'Unknown' %></td>
                         <td data-label="Amount">PHP <%= entry.amount %></td>
                         <td data-label="Description / reference"><%= [entry.description, entry.reference_no].filter(Boolean).join(' · ') || '—' %></td>
                         <td data-label="Recorded by"><%= entry.recorded_by_name %></td>
@@ -128,10 +146,5 @@
       <% } %>
     </section>
   <% } %>
-
-  <form class="dashboard-actions" method="post" action="/logout">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <button class="button button--secondary" type="submit">Sign out</button>
-  </form>
 </main>
 <%- include('../partials/foot') %>
