@@ -1,6 +1,6 @@
 # Goal Plan: Phases 8–15
 
-The development roadmap marks Phases 1–7 complete. This Goal Mode handoff covers Phases 8–15 in the existing roadmap order. Phases 8–10 are described in greater detail because they are the immediate work: secure document management, Google Document AI integration, and configurable validation. Keep each phase reviewable and continue automatically to the next phase after its acceptance gate passes under the new-chat authorization.
+The development roadmap marks Phases 1–7 complete. This Goal Mode handoff covers Phases 8–15 in the existing roadmap order. Phases 8–10 are described in greater detail because they are the immediate work: secure document management, Google Document AI integration, and configurable validation. Keep each phase reviewable, commit each completed phase locally after its acceptance gate passes, and continue automatically to the next phase under the new-chat authorization.
 
 ## Current repository state
 
@@ -110,19 +110,20 @@ Prepare production environment configuration, document and verify the database b
 
 ## Stop conditions
 
-- Run Phases 8–15 continuously in order as one Goal Mode objective. After each phase passes its acceptance gate, report a concise checkpoint and continue to the next phase automatically.
+- Run Phases 8–15 continuously in order as one Goal Mode objective. After each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that completed phase with a plain human message, and continue to the next phase automatically. Never push.
 - If a gate fails, resolve it within the current phase before proceeding. Pause only when a required gate cannot be resolved without user input, institution-approved rules or credentials are missing, or an irreversible action requires approval.
+- Do not commit a phase that is incomplete or blocked.
 - Do not invent a substitute for missing institution policy, credentials, or deployment details.
 - After Phase 15 passes its gate, report completion and stop. Do not add unrequested features or proceed beyond the roadmap.
 
 ## Goal Mode objective
 
-> Complete ARKTIESIIS roadmap Phases 8–15 in order within this single goal: secure document management, Google Document AI integration, institution-approved validation rules and review, role-specific dashboards and reporting, security and audit review, test coverage, UI polish, and deployment/defense readiness. Preserve the fixed project stack and all user changes. Enforce the documented role and document rules on the server. Complete each phase gate, report a concise checkpoint, and continue automatically to the next phase. Pause only for truly required user input, an irreversible action requiring approval, or an unresolved gate. Do not invent institution policy, commit, or push.
+> Complete ARKTIESIIS roadmap Phases 8–15 in order within this single goal: secure document management, Google Document AI integration, institution-approved validation rules and review, role-specific dashboards and reporting, security and audit review, test coverage, UI polish, and deployment/defense readiness. Preserve the fixed project stack and all user changes. Enforce the documented role and document rules on the server. Complete each phase gate, report a concise checkpoint, and continue automatically to the next phase. After each completed phase passes its acceptance gate, create one local commit for that phase using a plain human message; do not commit incomplete or blocked phases, and never push. Pause only for truly required user input, an irreversible action requiring approval, or an unresolved gate. Do not invent institution policy.
 
 ## Copy/paste prompt for the new chat
 
 ```text
-Start one Goal Mode objective using the objective in docs/08-phase-8-to-15-goal-plan.md. Work in this ARKTIESIIS repository. Use this same local checkout, not a fresh worktree, so these docs and all uncommitted work are available. First read AGENTS.md and docs/07-paper-objectives-scope-limitations.md plus docs/08-phase-8-to-15-goal-plan.md. Phases 1–7 are complete; implement Phases 8–15 in roadmap order using the existing Node.js/Express/EJS/SQL Server/Google Document AI/email-2FA stack. This prompt authorizes completing all eight phases continuously within this goal: after each phase passes its acceptance gate, report a concise checkpoint and continue automatically. Follow the exact role matrix and security gates in the plan. Preserve existing uncommitted changes. For each phase, make reviewable changes, run relevant checks, review access/security, and update docs as needed. Pause only for truly required user input, an irreversible action requiring approval, or an unresolved gate. Do not commit or push. Do not invent school requirements: pause for institution-approved document rules or other required inputs when needed. Never claim AI proves authenticity or detects forgery.
+Start one Goal Mode objective using the objective in docs/08-phase-8-to-15-goal-plan.md. Work in this ARKTIESIIS repository. Use this same local checkout, not a fresh worktree, so these docs and all uncommitted work are available. First read AGENTS.md and docs/07-paper-objectives-scope-limitations.md plus docs/08-phase-8-to-15-goal-plan.md. Phases 1–7 are complete; implement Phases 8–15 in roadmap order using the existing Node.js/Express/EJS/SQL Server/Google Document AI/email-2FA stack. This prompt authorizes completing all eight phases continuously within this goal: after each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that phase using a plain human message, and continue automatically. Never push or commit an incomplete or blocked phase. Follow the exact role matrix and security gates in the plan. Preserve existing uncommitted changes. For each phase, make reviewable changes, run relevant checks, review access/security, and update docs as needed. Pause only for truly required user input, an irreversible action requiring approval, or an unresolved gate. Do not invent school requirements: pause for institution-approved document rules or other required inputs when needed. Never claim AI proves authenticity or detects forgery.
 ```
 
 ## Out of scope
