@@ -25,7 +25,7 @@ The project materials do not establish a market position or competitor compariso
 
 ## Operating Context
 
-This is a thesis project. The current application includes authentication and role-specific dashboard placeholders. Later project phases cover school records, finance, document management, and reporting; the interface must distinguish planned work from working features.
+This is a thesis project. The current application implements authentication, database administration, student and academic records, and finance account management. Document management, Document AI workflows, and reporting remain for later phases; interfaces must distinguish planned work from working features.
 
 ## Capabilities and Constraints
 
@@ -49,7 +49,7 @@ This is a thesis project. The current application includes authentication and ro
 ## Product Principles
 
 - Enforce each role's access in server routes.
-- Describe only functionality that exists; keep future-phase dashboards clearly marked as placeholders.
+- Describe only functionality that exists and clearly label remaining planned workflows.
 - Treat automated document checks as completeness and configured-format assistance, not forensic verification.
 
 ## Accessibility & Inclusion

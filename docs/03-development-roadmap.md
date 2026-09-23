@@ -62,10 +62,14 @@
 **Provisional grading assumption:** grades currently accept numeric values from 0 through 100, with up to two decimal places. The range is isolated in `normalizeGradeValue` so it can be replaced when the school confirms its grading scale. Grading period labels are provided by authorized staff and validated for length; the application does not invent period names.
 
 ## Phase 7 - Finance
-- Financial account records.
-- Charges/payments/adjustments according to final approved scope.
-- Balance display.
-- Finance-only permissions.
+- [x] Bounded finance search by student number or name, returning at most 100 matching students and finance identifiers only.
+- [x] Finance staff can view a student's account, current balance, and latest 100 transactions; an account is created only by an explicit POST.
+- [x] Charges and payments require positive PHP amounts; adjustments require a nonzero signed PHP amount and a reason. Amounts are limited to DECIMAL(12,2) precision.
+- [x] Charges increase balance, payments decrease balance, and signed adjustments apply directly; a negative balance represents a credit.
+- [x] Finance-only server routes deny database administrators, registrars, and students. Write transactions recheck the active finance role.
+- [x] CSRF-protected, parameterized account and transaction writes use serializable transactions, row locks, duplicate-reference checks, and atomic audit records.
+
+**Reference number rule:** a nonempty reference number is accepted once per financial account after trimming. Duplicate matching follows the SQL Server database collation. Reuse on a different account is allowed.
 
 ## Phase 8 - Document Management
 - Secure upload flow.

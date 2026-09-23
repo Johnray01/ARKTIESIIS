@@ -94,8 +94,14 @@ Only active `database_admin` accounts can use `/admin`. Administrators can searc
 
 Staff accounts use `staff_profiles`. A student login can only be attached to an existing unlinked `students` record by student number. Changing a student account to a staff role clears that login link and preserves the student record and its academic history. Student record creation and editing remain in Phase 5. Existing databases need no Phase 4 migration.
 
+## Phase 7 finance
+
+Only active `finance` accounts can use `/finance`; students, registrars, and database administrators are denied. Finance staff can search by student number or name (up to 100 results), open an existing financial account, or explicitly create one. Account pages show the student's finance identifiers, balance, and up to 100 latest transactions without academic records.
+
+Charges and payments require a positive PHP amount; charges increase the balance and payments decrease it. Adjustments accept a nonzero positive or negative PHP amount and require a description explaining the reason. All amounts allow up to two decimal places within the `DECIMAL(12,2)` limit. Negative balances represent credits. Account creation, transaction insertion, balance updates, and audit events use serializable database transactions and commit together. A nonempty reference number can be used once per account after trimming; duplicate matching follows the SQL Server database collation, while reuse on another account is allowed. Existing databases need no Phase 7 migration because the baseline already includes the required financial tables.
+
 ## Current starter status
-This repository contains the project foundation, Phases 2–3 authentication, Phase 4 database administration, Phase 5 student records, and Phase 6 academic records. Finance, document upload, and Document AI workflows are implemented phase by phase.
+This repository contains the project foundation, email authentication, database administration, student and academic records, and the Phase 7 finance workspace. Document upload and Document AI workflows remain for later phases.
 
 ## Recommended workflow with Codex
 Start with the content of `CODEX_START_PROMPT.md`.

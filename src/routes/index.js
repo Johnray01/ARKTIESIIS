@@ -17,8 +17,10 @@ const { requireRole } = require('../middleware/roles');
 const { createAdminRouter } = require('./admin');
 const { createStudentRecordsRouter } = require('./studentRecords');
 const { createAcademicRecordsRouter } = require('./academicRecords');
+const { createFinanceRouter } = require('./finance');
 const { createStudentRecordsService } = require('../services/studentRecordsService');
 const { createAcademicRecordsService } = require('../services/academicRecordsService');
+const { createFinanceService } = require('../services/financeService');
 
 const credentialError = 'Invalid email or password.';
 // Fixed cost-12 hash for timing equalization; no account uses its discarded random source value.
@@ -26,7 +28,7 @@ const DUMMY_PASSWORD_HASH = '$2b$12$2GN3Hm/rogpWV12Ve9rA..0pPmX1b0nzDXo16QFiqYwS
 const dashboardViews = {
   database_admin: { path: '/admin', view: 'dashboards/database-admin', title: 'Database Admin Dashboard' },
   registrar: { path: '/dashboard/registrar', view: 'dashboards/registrar', title: 'Registrar Dashboard' },
-  finance: { path: '/dashboard/finance', view: 'dashboards/finance', title: 'Finance Dashboard' },
+  finance: { path: '/finance', title: 'Finance Workspace' },
   student: { path: '/dashboard/student', view: 'dashboards/student', title: 'Student Dashboard' }
 };
 
@@ -45,11 +47,12 @@ async function verifyPassword(user, password, comparePassword = bcrypt.compare) 
   return Boolean(active && passwordMatches);
 }
 
-function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService, academicRecordsService } = {}) {
+function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService, academicRecordsService, financeService } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth({ getPool, sql, environment });
   const recordsService = studentRecordsService || createStudentRecordsService({ getPool, sql });
   const academicsService = academicRecordsService || createAcademicRecordsService({ getPool, sql });
+  const financesService = financeService || createFinanceService({ getPool, sql });
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 10,
@@ -110,6 +113,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
     return { allowed: true, codeId: challenge.codeId };
   };
 
+  router.use('/finance', requireAuth, requireRole('finance'), createFinanceRouter({ getPool, sql, financeService: financesService }));
   router.use('/admin', requireAuth, requireRole('database_admin'), createAdminRouter({ getPool, sql, adminService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createStudentRecordsRouter({ getPool, sql, studentRecordsService: recordsService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createAcademicRecordsRouter({ getPool, sql, academicRecordsService: academicsService }));
@@ -310,6 +314,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
   });
 
   router.get('/dashboard/database-admin', requireAuth, requireRole('database_admin'), (req, res) => res.redirect(303, '/admin'));
+  router.get('/dashboard/finance', requireAuth, requireRole('finance'), (req, res) => res.redirect(303, '/finance'));
 
   router.get('/dashboard/student', requireAuth, requireRole('student'), async (req, res) => {
     try {
@@ -328,7 +333,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
   });
 
   for (const [role, dashboard] of Object.entries(dashboardViews)) {
-    if (role === 'database_admin' || role === 'student') continue;
+    if (role === 'database_admin' || role === 'finance' || role === 'student') continue;
     router.get(dashboard.path, requireAuth, requireRole(role), (req, res) => {
       res.render(dashboard.view, {
         title: dashboard.title,

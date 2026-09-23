@@ -24,9 +24,10 @@
 - May upload/manage restricted documents such as Form 137 and PSA birth certificates according to school policy.
 
 ## Finance
-- Student financial account access.
-- Record approved charges, payments, balances, or adjustments according to the final thesis requirements.
-- No academic/system-admin privileges.
+- Search for a student by name or student number and access only finance identifiers, account details, balances, and transaction history.
+- Create a financial account explicitly, then record positive PHP charges and payments or nonzero signed PHP adjustments with a reason.
+- Charge increases balance; payment decreases balance; a negative balance represents a credit.
+- Finance role only; no academic or system-administrator privileges.
 
 ## Student
 - Access only the student's own account and records.
