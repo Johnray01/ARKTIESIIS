@@ -16,21 +16,43 @@ The thesis may use the phrase **AI-based document verification**, but the implem
 
 ## Quick start
 
-1. Install Node.js 20+ and Microsoft SQL Server.
-2. Copy `.env.example` to `.env`.
-3. Configure the database and environment variables.
-4. Run `database/schema.sql` once against a fresh SQL Server database, then apply `database/migrations/002_email_two_factor_limits.sql`. On an existing Phase 2 database, apply only the migration. See [database/README.md](database/README.md) for the forward-only migration policy.
-5. Install the locked package versions:
+1. Install Node.js 20+, Docker Engine, and Docker Compose V2. On Fedora, install and start the packaged engine and Compose plugin:
+
+   ```bash
+   sudo dnf install moby-engine docker-compose
+   sudo systemctl enable --now docker
+   docker compose version
+   ```
+
+   If Docker reports a socket permission error, use `sudo` for Docker commands or add your account to the `docker` group and sign in again. Docker group membership grants root-equivalent access.
+
+2. Copy `.env.example` to `.env`. Review Microsoft's SQL Server license terms, then set `ACCEPT_EULA=Y` in `.env`. Set `DB_PASSWORD` to a unique local password; on Linux, generate one with `printf 'Ark_%s\n' "$(openssl rand -hex 24)"` and paste the result into `.env`. `.env` is ignored by Git.
+
+3. Install the locked package versions:
 
 ```bash
 npm ci
 ```
 
-6. Verify the database connection and required schema migrations:
+4. Start the local SQL Server 2022 Developer container. Its port is published only on `127.0.0.1`; its data persists in the `sqlserver_data` Docker volume:
 
 ```bash
+docker compose up -d sqlserver
+docker compose logs -f sqlserver
+```
+
+Wait for SQL Server to report that it is ready, then press Ctrl+C to leave the log view. This does not stop the container.
+
+5. Initialize a fresh database and apply any pending numbered migrations:
+
+```bash
+npm run db:setup
 npm run db:check
 ```
+
+`db:setup` runs the one-time baseline only when `ARKTIESIIS` does not exist. For an existing initialized database, it applies only unapplied migration scripts. It refuses to rerun the baseline if the database is missing its migration history or baseline marker. See [database/README.md](database/README.md) for the forward-only migration policy and recovery guidance.
+
+6. Configure `SMTP_HOST` and the matching SMTP port/security settings, `SMTP_FROM`, and both SMTP credentials when required by the mail server before using email-based sign-in. Database setup does not require SMTP. The explicit development password-only bypass is described below.
 
 7. Create the first database administrator from a private interactive terminal:
 

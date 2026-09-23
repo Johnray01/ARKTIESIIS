@@ -1,0 +1,15 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "${ACCEPT_EULA:?Review Microsoft's SQL Server license terms, then set ACCEPT_EULA=Y in the ignored .env file}"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in the ignored .env file}"
+    ports:
+      - "127.0.0.1:${DB_PORT:-1433}:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    restart: unless-stopped
+
+volumes:
+  sqlserver_data:
