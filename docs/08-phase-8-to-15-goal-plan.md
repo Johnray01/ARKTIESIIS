@@ -4,10 +4,10 @@ The development roadmap marks Phases 1–7 complete. This plan is split into two
 
 ## Current repository state
 
-- `database/schema.sql` already defines `documents` and `document_validations`, the four approved document types, file metadata, uploader, processing/review fields, and status constraints. The baseline is version `001`; schema changes must use new numbered, forward-only migrations.
+- `database/schema.sql` already defines `documents` and `document_validations`, the four approved document types, file metadata, uploader, processing/review fields, and status constraints. The baseline is version `001`; migrations `002` and `003` add two-factor limits and document revision/review-event support. Schema changes use new numbered, forward-only migrations.
 - `src/config/environment.js` already reads the Google Document AI processor settings and `MAX_UPLOAD_MB` (default 10 MB).
 - `src/config/documentAI.js` configures the Document AI client and processor resource name. `src/services/documentAIService.js` sends a local file to the configured processor. `src/services/documentValidationService.js` has a basic required-text helper.
-- The existing services are not connected to document upload, authorized download, per-student document history, re-upload, reviewer actions, or end-to-end validation routes. Those are future phase work.
+- Phase 8 connects upload, authorized private download, per-student document history, immutable corrected re-upload, review handoff, and correction requests. OCR/Document AI integration and institution-approved validation rules remain future phase work.
 - The existing role, CSRF, SQL, and audit patterns in the application should be followed. Do not change the one-time schema baseline to update an initialized database.
 
 ## Role and document access matrix
@@ -30,7 +30,7 @@ All permissions must be enforced on server routes and every file download. Stude
 3. Accept only PDF, JPEG, and PNG. Validate the extension, declared MIME type, actual file signature where applicable, and configured size limit on the server. Reject missing, empty, oversized, or mismatched uploads with a user-safe message.
 4. Generate opaque stored names. Store files outside the public directory and resolve every path beneath the configured storage root. Never render a filesystem path. Download handlers must recheck role and record ownership before streaming a file.
 5. Persist the existing metadata: student, selected document type, original filename, opaque stored filename, MIME type, byte size, uploader/source, status, and timestamp. Clean up an unreferenced file if the database write fails; report a safe error if cleanup also fails.
-6. Treat each corrected re-upload as a new immutable submission. Preserve the previous file and validation history. If the current schema cannot link revisions clearly, add a numbered migration for a version/supersedes relationship rather than overwriting a file or editing the baseline.
+6. Treat each corrected re-upload as a new immutable submission. Students may re-upload only their own Good Moral Certificates and report cards; registrar/database administrators may submit linked corrections for any document type they are allowed to manage. Preserve the previous file and validation history. If the current schema cannot link revisions clearly, add a numbered migration for a version/supersedes relationship rather than overwriting a file or editing the baseline.
 7. Build student history/status views and staff search/review views under the role matrix above. Do not expose OCR output to students unless the institution explicitly approves that behavior.
 
 ### Phase 8 acceptance checks

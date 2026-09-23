@@ -113,8 +113,14 @@ npm run demo:seed -- --apply
 
 Both commands require `NODE_ENV=development`; database writes require the explicit `--apply` flag. `SMTP_USER` must be a valid Gmail or Googlemail address so the script can derive separate plus-address aliases. On first apply, random passwords and aliases are saved in ignored `.env.demo` with owner-only permissions and are never printed. The seed includes three fake students, demo academic records, and a matching finance ledger. It creates no documents or Document AI records. Re-running after a successful seed adds nothing; conflicting pre-existing demo keys abort the transaction without changing existing data. See [scripts/README.md](scripts/README.md).
 
+## Document management
+
+Active students can upload and retrieve their own Good Moral Certificates and report cards. Registrars and database administrators can search submissions, upload documents for student records, send a submission for staff review, and request a corrected upload. Form 137 and PSA birth certificates are restricted to those staff roles. Finance accounts have no document access. Downloads recheck the current role and student ownership, and files are kept in the private `storage/uploads` directory by default (`DOCUMENT_STORAGE_DIR` can override it). `MAX_UPLOAD_MB` configures the size limit and defaults to 10 MB as a technical default, not an institution policy. Corrected uploads create a new submission linked to the earlier document; no retention period or automatic deletion is configured.
+
+Phase 8 document management does not run OCR or expose extracted text. Google Document AI integration and validation rules remain future work; institution-approved required fields and format/compliance rules have not been supplied.
+
 ## Current starter status
-This repository contains the project foundation, email authentication, database administration, student and academic records, and the Phase 7 finance workspace. Document upload and Document AI workflows remain for later phases.
+This repository contains the project foundation, email authentication, database administration, student and academic records, the Phase 7 finance workspace, and Phase 8 document management. Google Document AI integration and institution-approved validation rules remain for later phases.
 
 ## Recommended workflow with Codex
 Start with the content of `CODEX_START_PROMPT.md`.

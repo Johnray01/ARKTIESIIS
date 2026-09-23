@@ -1,0 +1,99 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page records-page" id="main-content">
+  <section class="dashboard-heading">
+    <div>
+      <h1><%= documentTypeLabel(document.document_type) %></h1>
+      <p>Submission #<%= document.id %><% if (isStaff) { %> · <%= document.student_no %> · <%= [document.first_name, document.middle_name, document.last_name].filter(Boolean).join(' ') %><% } %></p>
+    </div>
+    <div class="admin-heading-actions">
+      <a class="button button--secondary" href="<%= isStaff ? `/documents/students/${document.student_id}` : '/documents' %>"><%= isStaff ? 'Student documents' : 'My documents' %></a>
+      <a class="button button--primary" href="/documents/<%= document.id %>/download">Download file</a>
+    </div>
+  </section>
+
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+
+  <section class="admin-section" aria-labelledby="submission-title">
+    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p>The uploader selected the document type. Automated validation is not part of this page.</p></div></div>
+    <dl class="student-profile-grid">
+      <div><dt>File name</dt><dd><%= document.original_filename %></dd></div>
+      <div><dt>File type</dt><dd><%= document.mime_type %></dd></div>
+      <div><dt>File size</dt><dd><%= (Number(document.file_size_bytes) / 1048576).toFixed(2) %> MB</dd></div>
+      <div><dt>Status</dt><dd><%= document.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></dd></div>
+      <div><dt>Uploaded</dt><dd><%= document.created_at ? new Date(document.created_at).toLocaleString() : '—' %></dd></div>
+      <div><dt>Submission version</dt><dd><%= document.supersedes_document_id ? `Corrected from submission #${document.supersedes_document_id}` : 'Original submission' %></dd></div>
+    </dl>
+  </section>
+
+  <% if (isStaff) { %>
+    <section class="admin-section" aria-labelledby="review-actions-title">
+      <div class="admin-section__heading"><div><h2 id="review-actions-title">Staff review handoff</h2><p>Record a review handoff or request a correction. Students can re-upload only Good Moral Certificates and report cards; staff handle Form 137 and PSA corrections.</p></div></div>
+      <div class="admin-form-grid">
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/review">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="button button--secondary button--align-start" type="submit">Send for staff review</button>
+        </form>
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/correction">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field"><label for="correction-instruction">Correction instruction <%= ['good_moral', 'report_card'].includes(document.document_type) ? 'for the student' : 'for staff' %></label><textarea id="correction-instruction" name="instruction" rows="4" maxlength="1000" required></textarea></div>
+          <button class="button button--primary button--align-start" type="submit">Request corrected upload</button>
+        </form>
+      </div>
+    </section>
+    <% if (document.reviewEvents[0]?.action_type === 'correction_requested') { %>
+      <section class="admin-section" aria-labelledby="staff-correction-title">
+        <div class="admin-section__heading"><div><h2 id="staff-correction-title">Submit corrected file</h2><p>Upload a new linked submission. Students cannot re-upload Form 137 or PSA birth certificates, so staff must supply corrections for those types.</p></div></div>
+        <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <p class="muted-copy">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
+          <div class="field"><label for="replacement-file">Corrected file</label><input id="replacement-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required></div>
+          <button class="button button--primary button--align-start" type="submit">Upload corrected document</button>
+        </form>
+      </section>
+    <% } %>
+  <% } else if (document.reviewEvents[0]?.action_type === 'correction_requested') { %>
+    <section class="admin-section" aria-labelledby="correction-title">
+      <div class="admin-section__heading"><div><h2 id="correction-title">Correction requested</h2><p>Follow the instruction from staff, then upload the corrected file as a new submission.</p></div></div>
+      <p class="form-alert" role="status"><%= document.reviewEvents[0].instruction %></p>
+      <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <p class="muted-copy">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
+        <div class="field"><label for="replacement-file">Corrected file</label><input id="replacement-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required></div>
+        <button class="button button--primary button--align-start" type="submit">Upload corrected document</button>
+      </form>
+    </section>
+  <% } %>
+
+  <section class="admin-section" aria-labelledby="versions-title">
+    <div class="admin-section__heading"><div><h2 id="versions-title">Submissions for this document type</h2><p>Each row is a separate stored file. Earlier submissions remain available.</p></div></div>
+    <% if (document.history.length) { %>
+      <div class="table-scroll" tabindex="0" aria-label="Related document submissions">
+        <table class="admin-table"><caption class="visually-hidden">Submissions for this student and document type</caption>
+          <thead><tr><th scope="col">Submission</th><th scope="col">File</th><th scope="col">Status</th><th scope="col">Date</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody><% for (const item of document.history) { %><tr>
+            <td data-label="Submission">#<%= item.id %><% if (item.id === document.id) { %> · Current<% } else if (item.id === document.supersedes_document_id) { %> · Previous version<% } %></td>
+            <td data-label="File"><%= item.original_filename %></td>
+            <td data-label="Status"><%= item.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></td>
+            <td data-label="Date"><%= item.created_at ? new Date(item.created_at).toLocaleString() : '—' %></td>
+            <td data-label="Actions"><a class="table-action" href="/documents/<%= item.id %>">View</a> · <a class="table-action" href="/documents/<%= item.id %>/download">Download</a></td>
+          </tr><% } %></tbody>
+        </table>
+      </div>
+    <% } else { %><p class="empty-state">No related submissions are available.</p><% } %>
+  </section>
+
+  <section class="admin-section" aria-labelledby="review-history-title">
+    <div class="admin-section__heading"><div><h2 id="review-history-title">Review history</h2><p>Review handoffs and correction instructions recorded for this submission.</p></div></div>
+    <% if (document.reviewEvents.length) { %>
+      <ul class="document-review-history">
+        <% for (const event of document.reviewEvents) { %>
+          <li><strong><%= event.action_type === 'correction_requested' ? 'Correction requested' : 'Sent for staff review' %></strong><span><%= event.created_at ? new Date(event.created_at).toLocaleString() : '—' %><% if (isStaff) { %> · <%= event.reviewer_name %><% } %></span>
+            <% if (event.instruction) { %><p><%= event.instruction %></p><% } %>
+          </li>
+        <% } %>
+      </ul>
+    <% } else { %><p class="empty-state">No review events have been recorded.</p><% } %>
+  </section>
+</main>
+<%- include('../partials/foot') %>

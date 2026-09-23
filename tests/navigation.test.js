@@ -120,10 +120,10 @@ function navigationLabels(html) {
 
 test('authenticated navigation only exposes destinations available to each role', async () => {
   const cases = [
-    { role: 'database_admin', path: '/admin', labels: ['Overview', 'Student records', 'Subject catalog', 'Finance'], forbidden: [] },
-    { role: 'registrar', path: '/dashboard/registrar', labels: ['Overview', 'Student records', 'Subject catalog'], forbidden: ['/finance', '/admin'] },
-    { role: 'finance', path: '/finance', labels: ['Finance workspace'], forbidden: ['/records', '/admin'] },
-    { role: 'student', path: '/dashboard/student', labels: ['My record'], forbidden: ['/records', '/finance', '/admin'] }
+    { role: 'database_admin', path: '/admin', labels: ['Overview', 'Student records', 'Documents', 'Subject catalog', 'Finance'], forbidden: [] },
+    { role: 'registrar', path: '/dashboard/registrar', labels: ['Overview', 'Student records', 'Documents', 'Subject catalog'], forbidden: ['/finance', '/admin'] },
+    { role: 'finance', path: '/finance', labels: ['Finance workspace'], forbidden: ['/records', '/documents', '/admin'] },
+    { role: 'student', path: '/dashboard/student', labels: ['My record', 'My documents'], forbidden: ['/records', '/finance', '/admin'] }
   ];
 
   for (const scenario of cases) {

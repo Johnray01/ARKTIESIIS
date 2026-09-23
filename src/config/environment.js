@@ -24,6 +24,16 @@ function required(name) {
   return value;
 }
 
+function parseUploadMegabytes(value) {
+  const rawValue = value === undefined || value === '' ? '10' : String(value);
+  const megabytes = Number(rawValue);
+  const bytes = Math.floor(megabytes * 1024 * 1024);
+  if (!Number.isFinite(megabytes) || megabytes <= 0 || !Number.isSafeInteger(bytes) || bytes < 1) {
+    throw new Error('MAX_UPLOAD_MB must be a positive number that fits within the supported upload size.');
+  }
+  return megabytes;
+}
+
 const configuredSessionSecret = process.env.SESSION_SECRET;
 const normalizedSessionSecret = configuredSessionSecret?.trim();
 if (nodeEnv === 'production') {
@@ -60,7 +70,8 @@ module.exports = {
     processorId: process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID
   },
   upload: {
-    maxMb: Number(process.env.MAX_UPLOAD_MB || 10)
+    maxMb: parseUploadMegabytes(process.env.MAX_UPLOAD_MB),
+    storageDirectory: path.resolve(__dirname, '../../', process.env.DOCUMENT_STORAGE_DIR || 'storage/uploads')
   },
   required
 };

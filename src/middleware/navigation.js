@@ -2,19 +2,22 @@ const navigationByRole = {
   database_admin: [
     { id: 'overview', label: 'Overview', href: '/dashboard' },
     { id: 'student-records', label: 'Student records', href: '/records' },
+    { id: 'documents', label: 'Documents', href: '/documents' },
     { id: 'subjects', label: 'Subject catalog', href: '/records/subjects' },
     { id: 'finance', label: 'Finance', href: '/finance' }
   ],
   registrar: [
     { id: 'overview', label: 'Overview', href: '/dashboard' },
     { id: 'student-records', label: 'Student records', href: '/records' },
+    { id: 'documents', label: 'Documents', href: '/documents' },
     { id: 'subjects', label: 'Subject catalog', href: '/records/subjects' }
   ],
   finance: [
     { id: 'finance', label: 'Finance workspace', href: '/finance' }
   ],
   student: [
-    { id: 'my-record', label: 'My record', href: '/dashboard/student' }
+    { id: 'my-record', label: 'My record', href: '/dashboard/student' },
+    { id: 'documents', label: 'My documents', href: '/documents' }
   ]
 };
 
@@ -32,6 +35,8 @@ function buildNavigation(role, currentPath = '') {
       current = path === '/records/subjects' || path.startsWith('/records/subjects/');
     } else if (item.id === 'finance') {
       current = path === '/finance' || path.startsWith('/finance/');
+    } else if (item.id === 'documents') {
+      current = path === '/documents' || path.startsWith('/documents/');
     } else if (item.id === 'my-record') {
       current = path === '/dashboard/student';
     }

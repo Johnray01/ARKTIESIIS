@@ -33,4 +33,10 @@ The exact fields must be confirmed with the institution before final implementat
 - Training a new machine-learning model.
 - Classifying a document or claiming it is authentic.
 
+## Phase 8 document management boundary
+
+Document submissions are stored privately and begin with `pending` status. Students may upload Good Moral Certificates and report cards for their own linked student record. Registrars and database administrators may manage all four document types for student records; finance users have no document access. Each corrected upload is stored as a new submission linked to the earlier one, while review handoffs and correction instructions are retained on the submission that prompted them. Students see status and correction instructions, not OCR output. The upload limit defaults to 10 MB as a technical setting and is configurable with `MAX_UPLOAD_MB`; no school retention period or automatic deletion behavior is set.
+
+Phase 8 does not call Document AI. The processing steps above describe the planned integration; OCR, completeness checks, and format/compliance validation remain pending until their later phases and approved institution rules are available.
+
 Google Document AI provides OCR/text extraction. Node.js handles application logic, API calls, storage, and validation rules. No custom model or forensic analysis is in scope.

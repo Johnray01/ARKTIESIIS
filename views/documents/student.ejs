@@ -1,0 +1,50 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page records-page" id="main-content">
+  <section class="dashboard-heading">
+    <div>
+      <h1>Documents · <%= student.student_no %></h1>
+      <p><%= [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ') %></p>
+    </div>
+    <a class="button button--secondary" href="/documents">All documents</a>
+  </section>
+
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+
+  <section class="admin-section" aria-labelledby="upload-title">
+    <div class="admin-section__heading"><div><h2 id="upload-title">Upload a document</h2><p>Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p></div></div>
+    <form class="form-stack document-upload-form" method="post" action="/documents/students/<%= student.id %>" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="admin-form-grid">
+        <div class="field">
+          <label for="document-type">Document type</label>
+          <select id="document-type" name="documentType" required><option value="">Choose a document type</option><% for (const type of documentTypes) { %><option value="<%= type.value %>"><%= type.label %></option><% } %></select>
+        </div>
+        <div class="field">
+          <label for="document-file">File</label>
+          <input id="document-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required>
+        </div>
+      </div>
+      <button class="button button--primary button--align-start" type="submit">Upload document</button>
+    </form>
+  </section>
+
+  <section class="admin-section" aria-labelledby="history-title">
+    <div class="admin-section__heading"><div><h2 id="history-title">Submission history</h2><p>Files and review requests remain attached to each submission.</p></div></div>
+    <% if (documents.length) { %>
+      <div class="table-scroll" tabindex="0" aria-label="Student document history">
+        <table class="admin-table"><caption class="visually-hidden">Student document submission history</caption>
+          <thead><tr><th scope="col">Document</th><th scope="col">File</th><th scope="col">Status</th><th scope="col">Submitted</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody><% for (const document of documents) { %><tr>
+            <td data-label="Document"><%= documentTypeLabel(document.document_type) %><% if (document.supersedes_document_id) { %><br><span class="muted-copy">Corrected submission</span><% } %></td>
+            <td data-label="File"><%= document.original_filename %></td>
+            <td data-label="Status"><%= document.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %><% if (document.latest_review_action === 'correction_requested') { %><br><span class="muted-copy">Correction requested</span><% } %></td>
+            <td data-label="Submitted"><%= document.created_at ? new Date(document.created_at).toLocaleString() : '—' %></td>
+            <td data-label="Actions"><a class="table-action" href="/documents/<%= document.id %>">View details</a></td>
+          </tr><% } %></tbody>
+        </table>
+      </div>
+    <% } else { %><p class="empty-state">No documents have been uploaded for this student.</p><% } %>
+  </section>
+</main>
+<%- include('../partials/foot') %>
