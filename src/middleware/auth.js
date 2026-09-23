@@ -47,11 +47,12 @@ function createRequireAuth({ getPool = defaultGetPool, sql = defaultSql, environ
     const userId = req.session?.userId;
     if (!Number.isSafeInteger(userId) || userId < 1) return res.redirect('/login');
 
-    if (req.session.authLevel === 'password_only_dev' && !isDevelopmentPasswordLoginEnabled(environment)) {
+    const developmentLogin = req.session.authLevel === 'password_only_dev';
+    const emailTwoFactorLogin = req.session.authLevel === 'email_2fa';
+    if (developmentLogin && !isDevelopmentPasswordLoginEnabled(environment)) {
       return destroySession(req, res, environment, () => res.redirect('/login'));
     }
-
-    if (req.session.authLevel !== 'password_only_dev') return res.redirect('/login');
+    if (!developmentLogin && !emailTwoFactorLogin) return res.redirect('/login');
 
     try {
       const pool = await getPool();

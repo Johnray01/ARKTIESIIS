@@ -1,6 +1,9 @@
 <%- include('partials/head', { title }) %>
-<main class="shell">
-  <h1><%= title %></h1>
-  <p><%= message %></p>
+<main class="page-shell status-page" id="main-content">
+  <section class="status-content" aria-labelledby="status-title">
+    <h1 id="status-title"><%= title %></h1>
+    <p><%= message %></p>
+    <a class="button button--primary" href="/">Return to home</a>
+  </section>
 </main>
 <%- include('partials/foot') %>

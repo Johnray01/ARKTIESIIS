@@ -1,21 +1,22 @@
-const { sql, getPool, closePool } = require('../src/config/database');
+const { getPool, closePool } = require('../src/config/database');
 
 async function checkDatabase() {
   try {
     const pool = await getPool();
     const result = await pool.request()
-      .input('version', sql.NVarChar(50), '001')
-      .query('SELECT [version] FROM dbo.schema_migrations WHERE [version] = @version');
+      .query("SELECT [version] FROM dbo.schema_migrations WHERE [version] IN ('001', '002')");
+    const versions = new Set(result.recordset.map(({ version }) => version));
+    const missingVersions = ['001', '002'].filter((version) => !versions.has(version));
 
-    if (result.recordset.length === 0) {
-      console.error('Database is reachable, but baseline schema version 001 is not installed.');
+    if (missingVersions.length > 0) {
+      console.error(`Database is reachable, but required schema migration(s) ${missingVersions.join(', ')} are not installed.`);
       process.exitCode = 1;
       return;
     }
 
-    console.log('Database connectivity and baseline schema version 001 verified.');
+    console.log('Database connectivity and schema migrations 001 and 002 verified.');
   } catch {
-    console.error('Database check failed. Confirm the database settings, connectivity, and schema baseline 001.');
+    console.error('Database check failed. Confirm the database settings, connectivity, and schema migrations 001 and 002.');
     process.exitCode = 1;
   } finally {
     try {

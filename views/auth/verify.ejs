@@ -1,0 +1,25 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell auth-page" id="main-content">
+  <section class="auth-intro" aria-labelledby="verify-title">
+    <h1 id="verify-title">Check your school email</h1>
+    <p>Enter the six-digit code sent to your school email address. The code expires after five minutes.</p>
+  </section>
+  <section class="auth-form-section" aria-labelledby="code-title">
+    <h2 id="code-title">Email verification</h2>
+    <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+    <form class="form-stack" method="post" action="/login/verify">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="field">
+        <label for="code">Six-digit code</label>
+        <input class="code-input" id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" aria-describedby="code-help" required>
+        <span class="field-help" id="code-help">Enter the code from your latest email.</span>
+      </div>
+      <button class="button button--primary" type="submit">Verify and sign in</button>
+    </form>
+    <form class="resend-form" method="post" action="/login/verify/resend">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="button button--secondary" type="submit">Send a new code</button>
+    </form>
+  </section>
+</main>
+<%- include('../partials/foot') %>

@@ -3,7 +3,10 @@
 - Passwords hashed with bcrypt.
 - Password-only login is disabled unless both development environment flags are set; it is not a production authentication mode.
 - Login and logout forms use session-based CSRF tokens.
-- Email 2FA codes stored hashed and expire quickly.
+- Email 2FA codes are cryptographically random, stored only as bcrypt hashes, and expire after five minutes.
+- OTP verification consumes the code atomically; pending 2FA sessions do not authorize protected routes.
+- OTP verification attempts and sends are limited per account across sessions; resend requests have a cooldown and invalidate previous codes.
+- SMTP misconfiguration and delivery errors fail closed without returning provider or database details.
 - Session ID regenerated after authentication.
 - Role checks on every protected server route.
 - Students can only read their own student records.

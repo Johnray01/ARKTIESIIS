@@ -1,7 +1,16 @@
 <%- include('../partials/head', { title }) %>
-<main class="shell">
-  <h1>Finance Dashboard</h1>
-  <p>Dashboard features will be added in a later phase.</p>
-  <form method="post" action="/logout"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button type="submit">Log out</button></form>
+<main class="page-shell dashboard-page" id="main-content">
+  <section class="dashboard-heading">
+    <h1>Finance dashboard</h1>
+    <p>ARKTIESIIS workspace</p>
+  </section>
+  <section class="placeholder-state" aria-labelledby="placeholder-title">
+    <h2 id="placeholder-title">Dashboard placeholder</h2>
+    <p>Finance tools are not available in this build.</p>
+  </section>
+  <form class="dashboard-actions" method="post" action="/logout">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <button class="button button--secondary" type="submit">Sign out</button>
+  </form>
 </main>
 <%- include('../partials/foot') %>

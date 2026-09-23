@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const { getPool: defaultGetPool, sql: defaultSql } = require('../config/database');
 const defaultEnvironment = require('../config/environment');
+const twoFactor = require('../services/twoFactorService');
 const {
   ensureCsrfToken,
   hasValidCsrfToken,
@@ -37,7 +38,7 @@ async function verifyPassword(user, password, comparePassword = bcrypt.compare) 
   return Boolean(active && passwordMatches);
 }
 
-function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment } = {}) {
+function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth({ getPool, sql, environment });
   const loginLimiter = rateLimit({
@@ -50,6 +51,55 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       message: 'Too many login attempts. Try again later.'
     })
   });
+  const otpLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => res.status(429).render('error', {
+      title: 'Too Many Attempts',
+      message: 'Too many verification attempts. Try again later.'
+    })
+  });
+
+  const renderLogin = (req, res, error, status = 200) => res.status(status).render('auth/login', {
+    title: 'Login',
+    csrfToken: ensureCsrfToken(req),
+    twoFactorRequired: !isDevelopmentPasswordLoginEnabled(environment),
+    error
+  });
+  const renderVerification = (req, res, error = null, status = 200) => res.status(status).render('auth/verify', {
+    title: 'Verify Sign In',
+    csrfToken: ensureCsrfToken(req),
+    error
+  });
+  const regenerateSession = (req) => new Promise((resolve, reject) => {
+    req.session.regenerate((error) => error ? reject(error) : resolve());
+  });
+  const saveSession = (req) => new Promise((resolve, reject) => {
+    req.session.save((error) => error ? reject(error) : resolve());
+  });
+  const resetSessionAndRespond = (req, res, callback) => regenerateSession(req)
+    .then(callback)
+    .catch(() => res.status(500).render('error', { title: 'Error', message: 'Authentication could not be completed.' }));
+  const smtpReady = () => Boolean(environment.smtp?.host && environment.smtp?.from
+    && (!environment.smtp.user && !environment.smtp.pass || environment.smtp.user && environment.smtp.pass));
+  const sendChallenge = async (user) => {
+    const challenge = await twoFactorService.issueOtpChallenge({ getPool, sql, userId: user.id });
+    if (!challenge.allowed) return { allowed: false };
+
+    try {
+      await twoFactorService.sendOtpEmail(environment.smtp, user.email, challenge.code);
+    } catch {
+      try {
+        await twoFactorService.invalidateOtpChallenge({ getPool, sql, userId: user.id, codeId: challenge.codeId });
+      } catch {
+        // The pending session is also discarded, so a failed delivery cannot authenticate.
+      }
+      return { allowed: false, deliveryFailed: true };
+    }
+    return { allowed: true, codeId: challenge.codeId };
+  };
 
   router.get('/', (req, res) => {
     res.render('home', { title: 'ARKTIESIIS' });
@@ -66,13 +116,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
   });
 
   router.get('/login', (req, res) => {
-    if (!isDevelopmentPasswordLoginEnabled(environment)) {
-      return res.status(503).render('error', {
-        title: 'Login Unavailable',
-        message: 'Password-only login is unavailable in this environment.'
-      });
-    }
-    res.render('auth/login', { title: 'Login', csrfToken: ensureCsrfToken(req), error: null });
+    return renderLogin(req, res, null);
   });
 
   router.post('/login', loginLimiter, async (req, res) => {
@@ -80,13 +124,17 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }
 
-    if (!isDevelopmentPasswordLoginEnabled(environment)) {
-      return res.status(403).render('error', { title: 'Login Unavailable', message: 'Password-only login is available only in the configured development environment.' });
-    }
-
     const credentials = normalizeCredentials(req.body);
     if (!credentials) {
-      return res.status(401).render('auth/login', { title: 'Login', csrfToken: ensureCsrfToken(req), error: credentialError });
+      return renderLogin(req, res, credentialError, 401);
+    }
+
+    const developmentLogin = isDevelopmentPasswordLoginEnabled(environment);
+    if (!developmentLogin && !smtpReady()) {
+      return res.status(503).render('error', {
+        title: 'Login Unavailable',
+        message: 'Sign in is temporarily unavailable.'
+      });
     }
 
     try {
@@ -98,23 +146,120 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
       const passwordMatches = await verifyPassword(user, credentials.password);
 
       if (!passwordMatches) {
-        return res.status(401).render('auth/login', { title: 'Login', csrfToken: ensureCsrfToken(req), error: credentialError });
+        return renderLogin(req, res, credentialError, 401);
       }
 
-      req.session.regenerate((regenerateError) => {
-        if (regenerateError) {
-          return res.status(500).render('error', { title: 'Error', message: 'Authentication could not be completed.' });
-        }
-
+      if (developmentLogin) {
+        await regenerateSession(req);
         req.session.userId = user.id;
         req.session.authLevel = 'password_only_dev';
-        req.session.save((saveError) => {
-          if (saveError) {
-            return res.status(500).render('error', { title: 'Error', message: 'Authentication could not be completed.' });
-          }
-          return res.redirect(303, '/dashboard');
-        });
-      });
+        await saveSession(req);
+        return res.redirect(303, '/dashboard');
+      }
+
+      const challenge = await sendChallenge(user);
+      if (challenge.deliveryFailed) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
+      if (!challenge.allowed) return renderLogin(req, res, 'A sign-in code cannot be sent yet. Try again later.', 429);
+      await regenerateSession(req);
+      req.session.pendingUserId = user.id;
+      req.session.pendingOtpId = challenge.codeId;
+      req.session.authLevel = 'pending_2fa';
+      req.session.cookie.maxAge = twoFactorService.OTP_TTL_MINUTES * 60 * 1000;
+      await saveSession(req);
+      return res.redirect(303, '/login/verify');
+    } catch {
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'Authentication is temporarily unavailable.' });
+    }
+  });
+
+  router.get('/login/verify', async (req, res) => {
+    const userId = req.session?.pendingUserId;
+    const codeId = req.session?.pendingOtpId;
+    if (!Number.isSafeInteger(userId) || userId < 1 || !Number.isSafeInteger(codeId) || codeId < 1 || req.session.authLevel !== 'pending_2fa') {
+      return res.redirect('/login');
+    }
+
+    try {
+      const user = await twoFactorService.getActiveUser({ getPool, sql, userId });
+      if (!user || !(user.is_active === true || user.is_active === 1)) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
+      return renderVerification(req, res);
+    } catch {
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'Authentication is temporarily unavailable.' });
+    }
+  });
+
+  router.post('/login/verify', otpLimiter, async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+
+    const userId = req.session?.pendingUserId;
+    const codeId = req.session?.pendingOtpId;
+    if (!Number.isSafeInteger(userId) || userId < 1 || !Number.isSafeInteger(codeId) || codeId < 1 || req.session.authLevel !== 'pending_2fa') {
+      return res.redirect('/login');
+    }
+    const code = typeof req.body?.code === 'string' && /^\d{6}$/.test(req.body.code) ? req.body.code : null;
+    if (!code) return renderVerification(req, res, 'Enter the six-digit code from your email.', 401);
+
+    try {
+      const user = await twoFactorService.getActiveUser({ getPool, sql, userId });
+      if (!user || !(user.is_active === true || user.is_active === 1)) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
+
+      const challenge = await twoFactorService.getOtpChallenge({ getPool, sql, userId, codeId });
+      if (!challenge) return renderVerification(req, res, 'This code is invalid or has expired. Request a new code.', 401);
+
+      const allowed = await twoFactorService.reserveOtpAttempt({ getPool, sql, userId });
+      if (!allowed) return renderVerification(req, res, 'Too many code attempts. Request a new code later.', 429);
+
+      if (!await twoFactorService.compareOtp(code, challenge.code_hash)) {
+        return renderVerification(req, res, 'This code is invalid or has expired. Try again.', 401);
+      }
+
+      const consumed = await twoFactorService.consumeOtpChallenge({ getPool, sql, userId, codeId, codeHash: challenge.code_hash });
+      if (!consumed) return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+
+      await regenerateSession(req);
+      req.session.userId = user.id;
+      req.session.authLevel = 'email_2fa';
+      await saveSession(req);
+      return res.redirect(303, '/dashboard');
+    } catch {
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'Authentication is temporarily unavailable.' });
+    }
+  });
+
+  router.post('/login/verify/resend', otpLimiter, async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+
+    const userId = req.session?.pendingUserId;
+    if (!Number.isSafeInteger(userId) || userId < 1 || req.session.authLevel !== 'pending_2fa') return res.redirect('/login');
+
+    try {
+      const user = await twoFactorService.getActiveUser({ getPool, sql, userId });
+      if (!user || !(user.is_active === true || user.is_active === 1)) {
+        return resetSessionAndRespond(req, res, () => renderLogin(req, res, credentialError, 401));
+      }
+
+      const challenge = await sendChallenge(user);
+      if (challenge.deliveryFailed) {
+        return resetSessionAndRespond(req, res, () => res.status(503).render('error', {
+          title: 'Service Unavailable',
+          message: 'A sign-in code could not be sent. Sign in again later.'
+        }));
+      }
+      if (!challenge.allowed) return renderVerification(req, res, 'Please wait before requesting another code.', 429);
+      req.session.pendingOtpId = challenge.codeId;
+      req.session.cookie.maxAge = twoFactorService.OTP_TTL_MINUTES * 60 * 1000;
+      await saveSession(req);
+      return renderVerification(req, res, 'A new code was sent to your email.');
     } catch {
       return res.status(503).render('error', { title: 'Service Unavailable', message: 'Authentication is temporarily unavailable.' });
     }

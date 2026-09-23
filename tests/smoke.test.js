@@ -95,6 +95,87 @@ async function loginForCookie(baseUrl, email = 'registrar@example.edu') {
   return getSessionCookie(response);
 }
 
+function emailTwoFactorEnvironment(overrides = {}) {
+  return {
+    nodeEnv: 'test',
+    devPasswordOnlyLogin: false,
+    sessionSecret: 'phase-three-test-session-secret',
+    smtp: { host: 'smtp.test.invalid', port: 587, secure: false, user: 'test-user', pass: 'test-pass', from: 'ARKTIESIIS <test@example.edu>' },
+    ...overrides
+  };
+}
+
+function createTestTwoFactorService(user, { failDelivery = false, failDeliveryAt = Infinity, denyAfter = Infinity } = {}) {
+  const state = { attempts: 0, sends: 0, challenges: [], nextCode: 123456 };
+  const service = {
+    OTP_TTL_MINUTES: 5,
+    state,
+    async issueOtpChallenge() {
+      if (state.sends >= denyAfter) return { allowed: false, codeId: null, code: null };
+      state.sends += 1;
+      const challenge = {
+        id: state.sends,
+        code: String(state.nextCode++).padStart(6, '0'),
+        code_hash: `test-hash-${state.sends}`,
+        consumed: false,
+        expired: false
+      };
+      for (const previous of state.challenges) previous.consumed = true;
+      state.challenges.push(challenge);
+      return { allowed: true, codeId: challenge.id, code: challenge.code };
+    },
+    async sendOtpEmail(_smtp, _to, code) {
+      state.deliveredCode = code;
+      if (failDelivery || state.sends === failDeliveryAt) throw new Error('smtp-token=secret-value');
+    },
+    async invalidateOtpChallenge({ codeId }) {
+      const challenge = state.challenges.find((entry) => entry.id === codeId);
+      if (challenge) challenge.consumed = true;
+    },
+    async getActiveUser({ userId }) {
+      return user.id === userId ? { id: user.id, email: user.email, is_active: user.is_active } : null;
+    },
+    async getOtpChallenge({ userId, codeId }) {
+      if (user.id !== userId) return null;
+      const challenge = state.challenges.find((entry) => entry.id === codeId);
+      return challenge && !challenge.consumed && !challenge.expired
+        ? { id: challenge.id, code_hash: challenge.code_hash }
+        : null;
+    },
+    async reserveOtpAttempt() {
+      if (state.attempts >= 5) return false;
+      state.attempts += 1;
+      return true;
+    },
+    async compareOtp(code, codeHash) {
+      const challenge = state.challenges.find((entry) => entry.code_hash === codeHash);
+      return Boolean(challenge && challenge.code === code);
+    },
+    async consumeOtpChallenge({ userId, codeId, codeHash }) {
+      const challenge = state.challenges.find((entry) => entry.id === codeId);
+      if (user.id !== userId || user.is_active !== true || !challenge || challenge.consumed || challenge.expired || challenge.code_hash !== codeHash) return false;
+      challenge.consumed = true;
+      state.attempts = 0;
+      return true;
+    }
+  };
+  return service;
+}
+
+async function startEmailLogin(baseUrl, email, password = 'Correct-Horse-Battery-12') {
+  const loginPage = await fetch(`${baseUrl}/login`);
+  const anonymousCookie = getSessionCookie(loginPage);
+  const csrfToken = csrfFromHtml(await loginPage.text());
+  const response = await postForm(baseUrl, '/login', anonymousCookie, { _csrf: csrfToken, email, password });
+  return { anonymousCookie, response, authenticatedCookie: response.headers.get('set-cookie')?.split(';', 1)[0] };
+}
+
+async function getVerificationForm(baseUrl, cookie) {
+  const response = await fetch(`${baseUrl}/login/verify`, { headers: { cookie } });
+  const html = await response.text();
+  return { response, html, csrfToken: csrfFromHtml(html) };
+}
+
 test('required text validator passes when all configured keywords exist', () => {
   const result = validateRequiredText('Juan Dela Cruz School Year 2026', [
     { key: 'student_name', label: 'Student Name', keywords: ['Juan Dela Cruz'] },
@@ -110,7 +191,12 @@ test('home page renders with Helmet default content security policy', async () =
 
     assert.equal(response.status, 200);
     assert.match(html, /ARKTIESIIS/);
+    assert.match(html, /src="\/images\/arktiesiis-campus-building-hero\.png"/);
+    assert.match(html, /Street view of the Ark Technological Institute Education System Incorporated building at Lucena Branch/);
     assert.match(response.headers.get('content-security-policy'), /default-src 'self'/);
+    const buildingImage = await fetch(`${baseUrl}/images/arktiesiis-campus-building-hero.png`);
+    assert.equal(buildingImage.status, 200);
+    assert.match(buildingImage.headers.get('content-type'), /image\/png/);
   });
 });
 
@@ -120,11 +206,13 @@ test('login page renders', async () => {
     const html = await response.text();
 
     assert.equal(response.status, 200);
-    assert.match(html, /<h1>Login<\/h1>/);
+    assert.match(html, /<h1 id="login-title">Sign in<\/h1>/);
+    assert.match(html, /name="_csrf"/);
+    assert.match(html, /\/images\/arktiesiis-school-seal\.png/);
   });
 });
 
-test('login page is unavailable without the dev gate and does not create a session', async () => {
+test('login page remains available when the development password bypass is disabled', async () => {
   const disabledEnvironments = [
     { nodeEnv: 'development', devPasswordOnlyLogin: false },
     { nodeEnv: 'test', devPasswordOnlyLogin: true },
@@ -138,9 +226,10 @@ test('login page is unavailable without the dev gate and does not create a sessi
       const response = await fetch(`${baseUrl}/login`);
       const html = await response.text();
 
-      assert.equal(response.status, 503);
-      assert.equal(response.headers.get('set-cookie'), null);
-      assert.match(html, /Password-only login is unavailable in this environment\./);
+      assert.equal(response.status, 200);
+      if (environment.nodeEnv !== 'production') assert.ok(response.headers.get('set-cookie'));
+      else assert.equal(response.headers.get('set-cookie'), null);
+      assert.match(html, /verification code will be sent to your school email/);
     });
   }
 });
@@ -239,12 +328,258 @@ test('development login regenerates the session and redirects to the database-ba
 
     const rolePage = await fetch(`${baseUrl}/dashboard/registrar`, { headers: { cookie: authenticatedCookie } });
     assert.equal(rolePage.status, 200);
-    assert.match(await rolePage.text(), /Registrar Dashboard/);
+    assert.match(await rolePage.text(), /Registrar dashboard/);
 
     const deniedPage = await fetch(`${baseUrl}/dashboard/finance`, { headers: { cookie: authenticatedCookie } });
     assert.equal(deniedPage.status, 403);
     assert.ok(database.queries.some(({ statement, values }) => statement.includes('WHERE email = @email') && values.email === 'registrar@example.edu'));
     assert.ok(database.queries.filter(({ statement }) => statement.includes('WHERE id = @userId')).length >= 3);
+  });
+});
+
+test('non-development login requires OTP even when the development bypass flag is set', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 31, email: 'staff@example.edu', password_hash: passwordHash, role: 'registrar', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user);
+  const environment = emailTwoFactorEnvironment({ nodeEnv: 'test', devPasswordOnlyLogin: true });
+
+  await withServer(createApp({ databasePool: createAuthDatabase([user]).getPool, environment, twoFactorService }), async (baseUrl) => {
+    const { response, anonymousCookie, authenticatedCookie } = await startEmailLogin(baseUrl, user.email);
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get('location'), '/login/verify');
+    assert.notEqual(authenticatedCookie, anonymousCookie);
+
+    const dashboard = await fetch(`${baseUrl}/dashboard`, { headers: { cookie: authenticatedCookie }, redirect: 'manual' });
+    assert.equal(dashboard.status, 302);
+    assert.equal(dashboard.headers.get('location'), '/login');
+
+    const verification = await getVerificationForm(baseUrl, authenticatedCookie);
+    const verified = await postForm(baseUrl, '/login/verify', authenticatedCookie, {
+      _csrf: verification.csrfToken,
+      code: twoFactorService.state.deliveredCode
+    });
+    assert.equal(verified.status, 303);
+    assert.equal(verified.headers.get('location'), '/dashboard');
+    assert.notEqual(getSessionCookie(verified), authenticatedCookie);
+    const dashboardAfterOtp = await fetch(`${baseUrl}/dashboard`, {
+      headers: { cookie: getSessionCookie(verified) },
+      redirect: 'manual'
+    });
+    assert.equal(dashboardAfterOtp.status, 303);
+    assert.equal(dashboardAfterOtp.headers.get('location'), '/dashboard/registrar');
+  });
+});
+
+test('OTP verification rejects wrong, expired, and replayed codes and requires CSRF', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 32, email: 'student@example.edu', password_hash: passwordHash, role: 'student', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user);
+  const environment = emailTwoFactorEnvironment();
+
+  await withServer(createApp({ databasePool: createAuthDatabase([user]).getPool, environment, twoFactorService }), async (baseUrl) => {
+    const firstLogin = await startEmailLogin(baseUrl, user.email);
+    const firstCookie = firstLogin.authenticatedCookie;
+    const firstForm = await getVerificationForm(baseUrl, firstCookie);
+    assert.equal(firstForm.response.status, 200);
+
+    const missingCsrf = await postForm(baseUrl, '/login/verify', firstCookie, { code: twoFactorService.state.deliveredCode });
+    assert.equal(missingCsrf.status, 403);
+    const wrongCode = await postForm(baseUrl, '/login/verify', firstCookie, { _csrf: firstForm.csrfToken, code: '000000' });
+    assert.equal(wrongCode.status, 401);
+    assert.match(await wrongCode.text(), /This code is invalid or has expired/);
+
+    const secondLogin = await startEmailLogin(baseUrl, user.email);
+    const secondCookie = secondLogin.authenticatedCookie;
+    const secondForm = await getVerificationForm(baseUrl, secondCookie);
+    const currentChallenge = twoFactorService.state.challenges.at(-1);
+    currentChallenge.expired = true;
+    const expiredCode = await postForm(baseUrl, '/login/verify', secondCookie, {
+      _csrf: secondForm.csrfToken,
+      code: currentChallenge.code
+    });
+    assert.equal(expiredCode.status, 401);
+    assert.match(await expiredCode.text(), /invalid or has expired/);
+
+    const thirdLogin = await startEmailLogin(baseUrl, user.email);
+    const thirdCookie = thirdLogin.authenticatedCookie;
+    const thirdForm = await getVerificationForm(baseUrl, thirdCookie);
+    const correctCode = twoFactorService.state.deliveredCode;
+    const verified = await postForm(baseUrl, '/login/verify', thirdCookie, { _csrf: thirdForm.csrfToken, code: correctCode });
+    assert.equal(verified.status, 303);
+    assert.equal(twoFactorService.state.challenges.at(-1).consumed, true);
+
+    const replay = await postForm(baseUrl, '/login/verify', thirdCookie, { _csrf: thirdForm.csrfToken, code: correctCode });
+    assert.equal(replay.status, 403);
+    const stalePendingDashboard = await fetch(`${baseUrl}/dashboard/student`, { headers: { cookie: thirdCookie }, redirect: 'manual' });
+    assert.equal(stalePendingDashboard.status, 302);
+    assert.equal(stalePendingDashboard.headers.get('location'), '/login');
+  });
+});
+
+test('concurrent OTP submissions can redeem a code only once', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 37, email: 'registrar@example.edu', password_hash: passwordHash, role: 'registrar', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user);
+  await withServer(createApp({
+    databasePool: createAuthDatabase([user]).getPool,
+    environment: emailTwoFactorEnvironment(),
+    twoFactorService
+  }), async (baseUrl) => {
+    const login = await startEmailLogin(baseUrl, user.email);
+    const form = await getVerificationForm(baseUrl, login.authenticatedCookie);
+    const code = twoFactorService.state.deliveredCode;
+    const submissions = await Promise.all([1, 2].map(() => postForm(baseUrl, '/login/verify', login.authenticatedCookie, {
+      _csrf: form.csrfToken,
+      code
+    })));
+
+    const statuses = submissions.map((response) => response.status);
+    assert.equal(statuses.filter((status) => status === 303).length, 1);
+    assert.ok(statuses.every((status) => status === 303 || status === 401 || status === 403));
+    assert.equal(twoFactorService.state.challenges[0].consumed, true);
+  });
+});
+
+test('OTP attempt throttling is shared across login sessions', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 33, email: 'finance@example.edu', password_hash: passwordHash, role: 'finance', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user);
+  const environment = emailTwoFactorEnvironment();
+
+  await withServer(createApp({ databasePool: createAuthDatabase([user]).getPool, environment, twoFactorService }), async (baseUrl) => {
+    const firstLogin = await startEmailLogin(baseUrl, user.email);
+    const firstForm = await getVerificationForm(baseUrl, firstLogin.authenticatedCookie);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const response = await postForm(baseUrl, '/login/verify', firstLogin.authenticatedCookie, {
+        _csrf: firstForm.csrfToken,
+        code: '000000'
+      });
+      assert.equal(response.status, 401);
+      await response.arrayBuffer();
+    }
+
+    const secondLogin = await startEmailLogin(baseUrl, user.email);
+    const secondForm = await getVerificationForm(baseUrl, secondLogin.authenticatedCookie);
+    const fifthAttempt = await postForm(baseUrl, '/login/verify', secondLogin.authenticatedCookie, {
+      _csrf: secondForm.csrfToken,
+      code: '000000'
+    });
+    assert.equal(fifthAttempt.status, 401);
+    await fifthAttempt.arrayBuffer();
+
+    const throttled = await postForm(baseUrl, '/login/verify', secondLogin.authenticatedCookie, {
+      _csrf: secondForm.csrfToken,
+      code: twoFactorService.state.deliveredCode
+    });
+    assert.equal(throttled.status, 429);
+    assert.match(await throttled.text(), /Too many code attempts/);
+  });
+});
+
+test('OTP resend enforces the send limit and failed delivery cannot leave a pending challenge', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 34, email: 'registrar@example.edu', password_hash: passwordHash, role: 'registrar', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user, { denyAfter: 2 });
+  const environment = emailTwoFactorEnvironment();
+
+  await withServer(createApp({ databasePool: createAuthDatabase([user]).getPool, environment, twoFactorService }), async (baseUrl) => {
+    const login = await startEmailLogin(baseUrl, user.email);
+    const form = await getVerificationForm(baseUrl, login.authenticatedCookie);
+    const deniedCsrf = await postForm(baseUrl, '/login/verify/resend', login.authenticatedCookie, { _csrf: 'wrong' });
+    assert.equal(deniedCsrf.status, 403);
+
+    const resent = await postForm(baseUrl, '/login/verify/resend', login.authenticatedCookie, { _csrf: form.csrfToken });
+    assert.equal(resent.status, 200);
+    const resendBody = await resent.text();
+    assert.match(resendBody, /A new code was sent/);
+    assert.equal(twoFactorService.state.challenges[0].consumed, true);
+    assert.ok(csrfFromHtml(resendBody).length >= 32);
+    const latestForm = await getVerificationForm(baseUrl, login.authenticatedCookie);
+    const deniedResend = await postForm(baseUrl, '/login/verify/resend', login.authenticatedCookie, { _csrf: latestForm.csrfToken });
+    assert.equal(deniedResend.status, 429);
+    await deniedResend.arrayBuffer();
+    assert.equal(twoFactorService.state.challenges.at(-1).consumed, false);
+  });
+
+  const failureUser = { ...user, id: 35, email: 'failure@example.edu' };
+  const failedDelivery = createTestTwoFactorService(failureUser, { failDelivery: true });
+  await withServer(createApp({
+    databasePool: createAuthDatabase([failureUser]).getPool,
+    environment,
+    twoFactorService: failedDelivery
+  }), async (baseUrl) => {
+    const login = await startEmailLogin(baseUrl, failureUser.email);
+    const body = await login.response.text();
+    assert.equal(login.response.status, 401);
+    assert.match(body, /Invalid email or password\./);
+    assert.doesNotMatch(body, /smtp-token|secret-value/);
+    assert.equal(failedDelivery.state.challenges[0].consumed, true);
+    const staleChallenge = await fetch(`${baseUrl}/login/verify`, { headers: { cookie: login.authenticatedCookie }, redirect: 'manual' });
+    assert.equal(staleChallenge.status, 302);
+    assert.equal(staleChallenge.headers.get('location'), '/login');
+  });
+
+  const resendFailureUser = { ...user, id: 38, email: 'resend-failure@example.edu' };
+  const failedResend = createTestTwoFactorService(resendFailureUser, { failDeliveryAt: 2 });
+  await withServer(createApp({
+    databasePool: createAuthDatabase([resendFailureUser]).getPool,
+    environment,
+    twoFactorService: failedResend
+  }), async (baseUrl) => {
+    const login = await startEmailLogin(baseUrl, resendFailureUser.email);
+    const form = await getVerificationForm(baseUrl, login.authenticatedCookie);
+    const failed = await postForm(baseUrl, '/login/verify/resend', login.authenticatedCookie, { _csrf: form.csrfToken });
+    assert.equal(failed.status, 503);
+    assert.doesNotMatch(await failed.text(), /smtp-token|secret-value/);
+    assert.equal(failedResend.state.challenges[0].consumed, true);
+    assert.equal(failedResend.state.challenges[1].consumed, true);
+    const staleSession = await fetch(`${baseUrl}/login/verify`, { headers: { cookie: login.authenticatedCookie }, redirect: 'manual' });
+    assert.equal(staleSession.status, 302);
+    assert.equal(staleSession.headers.get('location'), '/login');
+  });
+});
+
+test('OTP verification rechecks active status and non-development SMTP misconfiguration fails closed', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const user = { id: 36, email: 'admin@example.edu', password_hash: passwordHash, role: 'database_admin', is_active: true };
+  const twoFactorService = createTestTwoFactorService(user);
+  const environment = emailTwoFactorEnvironment({ nodeEnv: 'test', devPasswordOnlyLogin: true });
+
+  await withServer(createApp({ databasePool: createAuthDatabase([user]).getPool, environment, twoFactorService }), async (baseUrl) => {
+    const login = await startEmailLogin(baseUrl, user.email);
+    const form = await getVerificationForm(baseUrl, login.authenticatedCookie);
+    user.is_active = false;
+    const response = await postForm(baseUrl, '/login/verify', login.authenticatedCookie, {
+      _csrf: form.csrfToken,
+      code: twoFactorService.state.deliveredCode
+    });
+    assert.equal(response.status, 401);
+    assert.match(await response.text(), /Invalid email or password\./);
+    const dashboard = await fetch(`${baseUrl}/dashboard`, { headers: { cookie: getSessionCookie(response) }, redirect: 'manual' });
+    assert.equal(dashboard.status, 302);
+    assert.equal(dashboard.headers.get('location'), '/login');
+  });
+
+  const misconfiguredUser = { ...user, is_active: true };
+  const database = createAuthDatabase([misconfiguredUser]);
+  await withServer(createApp({
+    databasePool: database.getPool,
+    environment: emailTwoFactorEnvironment({ smtp: { host: '', port: 587, secure: true, from: 'test@example.edu' } }),
+    twoFactorService
+  }), async (baseUrl) => {
+    const page = await fetch(`${baseUrl}/login`);
+    const cookie = getSessionCookie(page);
+    const token = csrfFromHtml(await page.text());
+    const response = await postForm(baseUrl, '/login', cookie, {
+      _csrf: token,
+      email: 'unknown@example.edu',
+      password: 'Correct-Horse-Battery-12'
+    });
+    const body = await response.text();
+    assert.equal(response.status, 503);
+    assert.match(body, /Sign in is temporarily unavailable/);
+    assert.doesNotMatch(body, /unknown@example.edu|smtp/);
+    assert.equal(database.queries.length, 0);
   });
 });
 
@@ -311,7 +646,7 @@ test('login returns the same credential error for missing, inactive, and wrong-p
     }
 
     assert.deepEqual(results.map((result) => result.status), [401, 401, 401]);
-    assert.ok(results.every((result) => /<p role="alert">Invalid email or password\.<\/p>/.test(result.body)));
+    assert.ok(results.every((result) => /<p class="form-alert" role="alert">Invalid email or password\.<\/p>/.test(result.body)));
   });
 });
 
@@ -346,7 +681,7 @@ test('password-only login is denied outside development and a dev session is des
       email: 'student@example.edu',
       password: 'Correct-Horse-Battery-12'
     });
-    assert.equal(deniedPost.status, 403);
+    assert.equal(deniedPost.status, 503);
     assert.equal(database.queries.length, 0);
 
     mutableEnvironment.nodeEnv = 'development';

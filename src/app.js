@@ -10,7 +10,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const projectRoot = path.resolve(__dirname, '..');
 
-function createApp({ databasePool = getPool, environment = env } = {}) {
+function createApp({ databasePool = getPool, environment = env, twoFactorService } = {}) {
   const app = express();
 
   app.set('view engine', 'ejs');
@@ -34,7 +34,7 @@ function createApp({ databasePool = getPool, environment = env } = {}) {
     }
   }));
 
-  app.use(createRouter({ getPool: databasePool, environment }));
+  app.use(createRouter({ getPool: databasePool, environment, twoFactorService }));
 
   app.use((req, res) => {
     res.status(404).render('error', { title: 'Not Found', message: 'Page not found.' });

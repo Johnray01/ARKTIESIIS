@@ -28,7 +28,8 @@
 - Store only hashed OTP.
 - Send through SMTP.
 - Verify and consume code.
-- Expiration and retry/rate-limit rules.
+- Enforce expiry, one-time use, CSRF, retry limits, and resend cooldowns.
+- Share per-account attempt and send limits across sessions.
 
 ## Phase 4 - Database Admin
 - User management.

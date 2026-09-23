@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T06:43:26.000Z",
+  "title": "Design System: ARKTIESIIS",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "School Crimson", "canonical": "#922b37", "tonalRamp": ["oklch(15% 0.137 18.1)", "oklch(25% 0.137 18.1)", "oklch(35% 0.137 18.1)", "oklch(45% 0.137 18.1)", "oklch(55% 0.137 18.1)", "oklch(65% 0.137 18.1)", "oklch(75% 0.137 18.1)", "oklch(95% 0.137 18.1)"] },
+      "primary-hover": { "role": "primary", "displayName": "Deep Crimson", "canonical": "#761e29", "tonalRamp": ["oklch(15% 0.121 18.2)", "oklch(25% 0.121 18.2)", "oklch(35% 0.121 18.2)", "oklch(45% 0.121 18.2)", "oklch(55% 0.121 18.2)", "oklch(65% 0.121 18.2)", "oklch(75% 0.121 18.2)", "oklch(95% 0.121 18.2)"] },
+      "page": { "role": "neutral", "displayName": "Cool Mist", "canonical": "#f3f5f7", "tonalRamp": ["oklch(15% 0.000 0.0)", "oklch(25% 0.000 0.0)", "oklch(35% 0.000 0.0)", "oklch(45% 0.000 0.0)", "oklch(55% 0.000 0.0)", "oklch(65% 0.000 0.0)", "oklch(75% 0.000 0.0)", "oklch(95% 0.000 0.0)"] },
+      "surface": { "role": "neutral", "displayName": "White Surface", "canonical": "#ffffff", "tonalRamp": ["oklch(15% 0.000 0.0)", "oklch(25% 0.000 0.0)", "oklch(35% 0.000 0.0)", "oklch(45% 0.000 0.0)", "oklch(55% 0.000 0.0)", "oklch(65% 0.000 0.0)", "oklch(75% 0.000 0.0)", "oklch(95% 0.000 0.0)"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1b232c", "tonalRamp": ["oklch(15% 0.021 251.6)", "oklch(25% 0.021 251.6)", "oklch(35% 0.021 251.6)", "oklch(45% 0.021 251.6)", "oklch(55% 0.021 251.6)", "oklch(65% 0.021 251.6)", "oklch(75% 0.021 251.6)", "oklch(95% 0.021 251.6)"] },
+      "ink-soft": { "role": "neutral", "displayName": "Soft Ink", "canonical": "#3d4853", "tonalRamp": ["oklch(15% 0.023 248.4)", "oklch(25% 0.023 248.4)", "oklch(35% 0.023 248.4)", "oklch(45% 0.023 248.4)", "oklch(55% 0.023 248.4)", "oklch(65% 0.023 248.4)", "oklch(75% 0.023 248.4)", "oklch(95% 0.023 248.4)"] },
+      "muted": { "role": "neutral", "displayName": "Muted Slate", "canonical": "#52606d", "tonalRamp": ["oklch(15% 0.027 246.4)", "oklch(25% 0.027 246.4)", "oklch(35% 0.027 246.4)", "oklch(45% 0.027 246.4)", "oklch(55% 0.027 246.4)", "oklch(65% 0.027 246.4)", "oklch(75% 0.027 246.4)", "oklch(95% 0.027 246.4)"] },
+      "line": { "role": "neutral", "displayName": "Cool Line", "canonical": "#d8dee4", "tonalRamp": ["oklch(15% 0.010 247.9)", "oklch(25% 0.010 247.9)", "oklch(35% 0.010 247.9)", "oklch(45% 0.010 247.9)", "oklch(55% 0.010 247.9)", "oklch(65% 0.010 247.9)", "oklch(75% 0.010 247.9)", "oklch(95% 0.010 247.9)"] },
+      "line-strong": { "role": "neutral", "displayName": "Strong Line", "canonical": "#aeb8c2", "tonalRamp": ["oklch(15% 0.018 248.1)", "oklch(25% 0.018 248.1)", "oklch(35% 0.018 248.1)", "oklch(45% 0.018 248.1)", "oklch(55% 0.018 248.1)", "oklch(65% 0.018 248.1)", "oklch(75% 0.018 248.1)", "oklch(95% 0.018 248.1)"] },
+      "error": { "role": "error", "displayName": "Error Crimson", "canonical": "#8a202c", "tonalRamp": ["oklch(15% 0.141 19.8)", "oklch(25% 0.141 19.8)", "oklch(35% 0.141 19.8)", "oklch(45% 0.141 19.8)", "oklch(55% 0.141 19.8)", "oklch(65% 0.141 19.8)", "oklch(75% 0.141 19.8)", "oklch(95% 0.141 19.8)"] },
+      "accent-wash": { "role": "neutral", "displayName": "Crimson Wash", "canonical": "#f8ecee", "tonalRamp": ["oklch(15% 0.013 5.8)", "oklch(25% 0.013 5.8)", "oklch(35% 0.013 5.8)", "oklch(45% 0.013 5.8)", "oklch(55% 0.013 5.8)", "oklch(65% 0.013 5.8)", "oklch(75% 0.013 5.8)", "oklch(95% 0.013 5.8)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "School Display", "purpose": "Homepage heading only." },
+      "headline": { "displayName": "Page Heading", "purpose": "Page-level headings across sign-in, verification, status, and dashboards." },
+      "title": { "displayName": "Section Title", "purpose": "Form and placeholder section headings." },
+      "body": { "displayName": "Interface Body", "purpose": "Readable system sans-serif copy and controls." },
+      "label": { "displayName": "Form Label", "purpose": "Field labels and short control descriptors." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "control-state", "value": "160ms ease", "purpose": "Subtle hover and active feedback on buttons." }
+    ],
+    "breakpoints": [
+      { "name": "stack-layouts", "value": "760px" },
+      { "name": "compact-masthead", "value": "400px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single prominent action on a page, including sign in and OTP verification.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Sign in</button>",
+      "css": ".ds-button-primary { display: inline-flex; min-height: 2.9rem; align-items: center; justify-content: center; padding: 0.65rem 1.05rem; border: 1px solid transparent; border-radius: 0.35rem; background: var(--accent); color: #fff; font: inherit; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; } .ds-button-primary:hover { background: var(--accent-hover); color: #fff; } .ds-button-primary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; } .ds-button-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "An outlined secondary action such as resending a code or signing out.",
+      "html": "<button class=\"ds-button-secondary\" type=\"button\">Send a new code</button>",
+      "css": ".ds-button-secondary { display: inline-flex; min-height: 2.9rem; align-items: center; justify-content: center; padding: 0.65rem 1.05rem; border: 1px solid var(--line-strong); border-radius: 0.35rem; background: var(--surface); color: var(--ink); font: inherit; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; } .ds-button-secondary:hover { border-color: var(--ink-soft); background: #f7f8f9; } .ds-button-secondary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A labeled school email, password, or verification-code input.",
+      "html": "<label class=\"ds-field-label\" for=\"school-email\">School email</label><input class=\"ds-field-input\" id=\"school-email\" type=\"email\" autocomplete=\"username\">",
+      "css": ".ds-field-label { display: block; margin-bottom: 0.45rem; color: var(--ink); font-size: 0.92rem; font-weight: 650; } .ds-field-input { width: 100%; min-height: 3rem; padding: 0.7rem 0.8rem; border: 1px solid var(--line-strong); border-radius: 0.35rem; background: var(--surface); color: var(--ink); font: inherit; } .ds-field-input:hover { border-color: var(--ink-soft); } .ds-field-input:focus-visible { border-color: var(--accent); outline: 3px solid rgb(146 43 55 / 24%); outline-offset: 1px; }"
+    },
+    {
+      "name": "Authentication Surface",
+      "kind": "card",
+      "refersTo": "auth-surface",
+      "description": "The only elevated container: a single focused sign-in or verification form.",
+      "html": "<section class=\"ds-auth-surface\"><h2>School account</h2><p>Sign in to continue.</p></section>",
+      "css": ".ds-auth-surface { padding: 2.25rem; border: 1px solid var(--line); border-radius: 0.7rem; background: var(--surface); color: var(--ink); } .ds-auth-surface h2 { margin: 0 0 0.75rem; font-size: 1.25rem; line-height: 1.15; } .ds-auth-surface p { margin: 0; color: var(--ink-soft); }"
+    },
+    {
+      "name": "School Masthead",
+      "kind": "nav",
+      "refersTo": "brand-masthead",
+      "description": "A home link pairing the unchanged school seal with the institution and branch names.",
+      "html": "<a class=\"ds-brand\" href=\"/\"><img src=\"/images/arktiesiis-school-seal.png\" alt=\"Official seal of Ark Technological Institute Education System Incorporated\"><span><strong>ARKTIESIIS</strong><br>Ark Technological Institute Education System Incorporated<br>Lucena Branch</span></a>",
+      "css": ".ds-brand { display: inline-flex; align-items: center; gap: 0.9rem; color: var(--ink); text-decoration: none; line-height: 1.25; } .ds-brand img { display: block; width: 4.25rem; height: 4.25rem; object-fit: contain; } .ds-brand strong { font-size: 1rem; letter-spacing: 0.045em; } .ds-brand span { color: var(--ink-soft); font-size: 0.84rem; } .ds-brand:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Records Desk",
+    "overview": "The interface is a clear, restrained school-office workspace. The official seal and the Lucena Branch building photograph place the pages in their real institutional setting; consistent type and form controls keep sign-in and verification easy to scan. Surfaces stay cool and neutral, with crimson used for the action and focus moments that need attention. The interface states only what is present: role dashboards remain placeholders until their tools exist.",
+    "keyCharacteristics": [
+      "The school seal and building image are authentic identity assets, not decoration.",
+      "Red is reserved for primary actions, small links, and keyboard focus.",
+      "System sans-serif typography, flat surfaces, and readable form spacing carry across every page.",
+      "Role dashboards describe their current placeholder state without invented counts or navigation."
+    ],
+    "rules": [
+      { "name": "The One Crimson Rule", "body": "Keep large areas neutral; use crimson where a person acts, focuses, or needs to notice an error.", "section": "colors" }
+    ],
+    "dos": [
+      "Do use the official seal without changing its image contents.",
+      "Do keep the red accent for actions, links, focus, and error states.",
+      "Do use the supplied building photograph as the homepage's main visual.",
+      "Do preserve CSRF fields, route names, field names, and escaped EJS content when updating these forms.",
+      "Do label future dashboard work as unavailable in this build until it exists."
+    ],
+    "donts": [
+      "Don't invent dashboard tools, counts, or role navigation.",
+      "Don't replace the institutional images with generic school or campus imagery.",
+      "Don't add a saturated secondary palette, gradients, or decorative shadows.",
+      "Don't expose raw authentication, database, or SMTP error details in page copy."
+    ]
+  }
+}
