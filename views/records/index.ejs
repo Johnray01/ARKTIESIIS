@@ -1,0 +1,116 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page admin-page records-page" id="main-content">
+  <section class="dashboard-heading">
+    <div>
+      <h1>Student records</h1>
+      <p><%= currentUser.role === 'database_admin' ? 'Database administrator' : 'Registrar' %> workspace</p>
+    </div>
+    <div class="admin-heading-actions">
+      <a class="button button--primary" href="/records/students/new">Add student</a>
+      <% if (currentUser.role === 'database_admin') { %><a class="button button--secondary" href="/admin">User accounts</a><% } %>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="button button--secondary" type="submit">Sign out</button>
+      </form>
+    </div>
+  </section>
+
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+
+  <section class="admin-section" aria-labelledby="students-title">
+    <div class="admin-section__heading">
+      <div>
+        <h2 id="students-title">Student master list</h2>
+        <p>Search by name or student number. Results are limited to 250 records.</p>
+      </div>
+    </div>
+    <form class="admin-search records-search" method="get" action="/records">
+      <div class="field">
+        <label for="student-search">Name or student number</label>
+        <input id="student-search" name="search" type="search" maxlength="100" value="<%= searchTerm %>" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="term-filter">Academic term</label>
+        <select id="term-filter" name="termId">
+          <option value="">All terms</option>
+          <% for (const term of terms) { %>
+            <option value="<%= term.id %>" <%= academicTermId === term.id ? 'selected' : '' %>><%= term.school_year %> · <%= term.term %><%= term.is_current ? ' (current)' : '' %></option>
+          <% } %>
+        </select>
+      </div>
+      <button class="button button--secondary" type="submit">Filter records</button>
+      <% if (searchTerm || academicTermId) { %><a class="table-action" href="/records">Clear filters</a><% } %>
+    </form>
+    <p class="admin-result-count"><%= students.length %> matching student<%= students.length === 1 ? '' : 's' %><% if (students.length === 250) { %> (showing the first 250)<% } %></p>
+    <% if (students.length) { %>
+      <div class="table-scroll" tabindex="0" aria-label="Scrollable student records table">
+        <table class="admin-table">
+          <caption class="visually-hidden">Student master list and latest selected enrollment</caption>
+          <thead><tr><th scope="col">Student number</th><th scope="col">Student name</th><th scope="col">Term</th><th scope="col">Section</th><th scope="col">Enrollment</th><th scope="col"><span class="visually-hidden">Record actions</span></th></tr></thead>
+          <tbody>
+            <% for (const student of students) { %>
+              <tr>
+                <td data-label="Student number"><%= student.student_no %></td>
+                <td data-label="Student name"><%= [student.first_name, student.middle_name, student.last_name, student.suffix].filter(Boolean).join(' ') %></td>
+                <td data-label="Term"><%= student.academic_term_id ? `${student.school_year} · ${student.term}` : '—' %></td>
+                <td data-label="Section"><%= student.section_name || '—' %></td>
+                <td data-label="Enrollment"><%= student.enrollment_status || 'Not enrolled' %></td>
+                <td data-label="Actions"><a class="table-action" href="/records/students/<%= student.id %>/edit">View / edit</a></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %><p class="empty-state">No student records match these filters.</p><% } %>
+  </section>
+
+  <div class="records-management-grid">
+    <section class="admin-section" aria-labelledby="terms-title">
+      <div class="admin-section__heading"><div><h2 id="terms-title">Academic terms</h2><p>Create a term and choose which existing term is current.</p></div></div>
+      <form class="form-stack records-compact-form" method="post" action="/records/terms">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="admin-form-grid">
+          <div class="field"><label for="school-year">School year</label><input id="school-year" name="schoolYear" type="text" maxlength="20" required></div>
+          <div class="field"><label for="term-name">Term</label><input id="term-name" name="term" type="text" maxlength="30" required></div>
+        </div>
+        <label class="checkbox-field"><input name="isCurrent" value="1" type="checkbox"><span>Set this as the current term</span></label>
+        <button class="button button--primary button--align-start" type="submit">Create term</button>
+      </form>
+      <% if (terms.length) { %>
+        <div class="table-scroll records-small-table" tabindex="0" aria-label="Academic terms">
+          <table class="admin-table"><thead><tr><th scope="col">Term</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody><% for (const term of terms) { %><tr>
+              <td data-label="Term"><%= term.school_year %> · <%= term.term %></td>
+              <td data-label="Status"><%= term.is_current ? 'Current' : 'Previous' %></td>
+              <td data-label="Actions"><% if (!term.is_current) { %>
+                <form method="post" action="/records/terms/<%= term.id %>/current"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="table-action table-button" type="submit">Set current</button></form>
+              <% } else { %><span class="muted-copy">Current term</span><% } %></td>
+            </tr><% } %></tbody>
+          </table>
+        </div>
+      <% } else { %><p class="empty-state">No academic terms have been created.</p><% } %>
+    </section>
+
+    <section class="admin-section" aria-labelledby="sections-title">
+      <div class="admin-section__heading"><div><h2 id="sections-title">Sections</h2><p>Each section belongs to one academic term.</p></div></div>
+      <form class="form-stack records-compact-form" method="post" action="/records/sections">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="field"><label for="section-name">Section name</label><input id="section-name" name="name" type="text" maxlength="100" required></div>
+        <div class="admin-form-grid">
+          <div class="field"><label for="grade-level">Grade level (optional)</label><input id="grade-level" name="gradeLevel" type="text" maxlength="50"></div>
+          <div class="field"><label for="section-term">Academic term</label><select id="section-term" name="academicTermId" required><option value="">Choose a term</option><% for (const term of terms) { %><option value="<%= term.id %>"><%= term.school_year %> · <%= term.term %></option><% } %></select></div>
+        </div>
+        <button class="button button--primary button--align-start" type="submit" <%= terms.length ? '' : 'disabled' %>>Create section</button>
+      </form>
+      <% if (sections.length) { %>
+        <div class="table-scroll records-small-table" tabindex="0" aria-label="Sections and academic terms">
+          <table class="admin-table"><thead><tr><th scope="col">Section</th><th scope="col">Grade level</th><th scope="col">Term</th></tr></thead>
+            <tbody><% for (const section of sections) { %><tr><td data-label="Section"><%= section.name %></td><td data-label="Grade level"><%= section.grade_level || '—' %></td><td data-label="Term"><%= section.school_year %> · <%= section.term %></td></tr><% } %></tbody>
+          </table>
+        </div>
+      <% } else { %><p class="empty-state">No sections have been created.</p><% } %>
+    </section>
+  </div>
+</main>
+<%- include('../partials/foot') %>

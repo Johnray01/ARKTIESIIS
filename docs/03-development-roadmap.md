@@ -40,10 +40,14 @@
 - [x] Student logins link to existing unlinked student records; Phase 4 does not create or edit student master records.
 
 ## Phase 5 - Student Records
-- Student profiles.
-- Search/filter.
-- Master list.
-- Academic terms, sections, enrollment.
+- [x] Registrar/database administrator student master list with bounded name/student-number search and term filter.
+- [x] Master list shows at most 250 matches; selectors load up to 100 terms (current first) and 250 sections.
+- [x] Student profile creation and editing; linked account relationships and academic history are retained.
+- [x] Academic term creation and current-term management.
+- [x] Sections tied to academic terms.
+- [x] Enrollment create/update with server-side term/section consistency checks.
+- [x] Student self-view resolved only through the authenticated account's linked student record.
+- [x] Audit events for profile, term, section, and enrollment mutations.
 
 ## Phase 6 - Registrar / Academic Records
 - Registrar dashboard.

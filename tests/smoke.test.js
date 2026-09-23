@@ -625,7 +625,15 @@ test('login and logout reject missing or invalid session CSRF tokens and valid l
     is_active: true
   }]);
 
-  await withServer(createApp({ databasePool: database.getPool, environment: developmentEnvironment() }), async (baseUrl) => {
+  await withServer(createApp({
+    databasePool: database.getPool,
+    environment: developmentEnvironment(),
+    studentRecordsService: {
+      async getOwnStudentRecord() {
+        return { student: { student_no: 'TEST-3', first_name: 'Student', last_name: 'Example' }, enrollments: [] };
+      }
+    }
+  }), async (baseUrl) => {
     const page = await fetch(`${baseUrl}/login`);
     const anonymousCookie = getSessionCookie(page);
     const token = csrfFromHtml(await page.text());

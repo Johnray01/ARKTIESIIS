@@ -1,0 +1,64 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page admin-page records-page" id="main-content">
+  <section class="dashboard-heading">
+    <div>
+      <h1><%= student ? 'Student record' : 'Create student profile' %></h1>
+      <p><% if (student) { %>Student number <%= student.student_no %><% } else { %>Enter the student’s master record details.<% } %></p>
+    </div>
+    <div class="admin-heading-actions">
+      <a class="button button--secondary" href="/records">Back to student records</a>
+      <form method="post" action="/logout"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="button button--secondary" type="submit">Sign out</button></form>
+    </div>
+  </section>
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+
+  <section class="admin-form-section records-form-section" aria-labelledby="profile-title">
+    <h2 id="profile-title">Profile details</h2>
+    <p>Student profiles are retained when a linked login account changes role.</p>
+    <form class="form-stack admin-form" method="post" action="<%= student ? `/records/students/${student.id}` : '/records/students' %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="admin-form-grid">
+        <div class="field"><label for="student-no">Student number</label><input id="student-no" name="studentNo" type="text" maxlength="50" required value="<%= values.studentNo %>"></div>
+        <div class="field"><label for="first-name">First name</label><input id="first-name" name="firstName" type="text" maxlength="100" required value="<%= values.firstName %>"></div>
+        <div class="field"><label for="middle-name">Middle name (optional)</label><input id="middle-name" name="middleName" type="text" maxlength="100" value="<%= values.middleName %>"></div>
+        <div class="field"><label for="last-name">Last name</label><input id="last-name" name="lastName" type="text" maxlength="100" required value="<%= values.lastName %>"></div>
+        <div class="field"><label for="suffix">Suffix (optional)</label><input id="suffix" name="suffix" type="text" maxlength="20" value="<%= values.suffix %>"></div>
+        <div class="field"><label for="birth-date">Birth date (optional)</label><input id="birth-date" name="birthDate" type="date" value="<%= values.birthDate || '' %>"></div>
+        <div class="field"><label for="sex">Sex (optional)</label><input id="sex" name="sex" type="text" maxlength="20" value="<%= values.sex %>"></div>
+        <div class="field"><label for="phone">Phone (optional)</label><input id="phone" name="phone" type="tel" maxlength="50" value="<%= values.phone %>"></div>
+        <div class="field field--full"><label for="address">Address (optional)</label><textarea id="address" name="address" maxlength="500" rows="3"><%= values.address %></textarea></div>
+      </div>
+      <div class="admin-form-actions"><button class="button button--primary" type="submit"><%= student ? 'Save profile' : 'Create profile' %></button><a class="button button--secondary" href="/records">Cancel</a></div>
+    </form>
+  </section>
+
+  <% if (student) { %>
+    <section class="admin-section" aria-labelledby="enrollments-title">
+      <div class="admin-section__heading"><div><h2 id="enrollments-title">Enrollment history</h2><p>Saving an existing student and term updates its section. The term and selected section must match.</p></div></div>
+      <% if (enrollments.length) { %>
+        <div class="table-scroll" tabindex="0" aria-label="Student enrollment history">
+          <table class="admin-table"><thead><tr><th scope="col">Academic term</th><th scope="col">Section</th><th scope="col">Status</th><th scope="col">Enrolled</th></tr></thead><tbody>
+            <% for (const enrollment of enrollments) { %><tr>
+              <td data-label="Academic term"><%= enrollment.school_year %> · <%= enrollment.term %></td>
+              <td data-label="Section"><%= enrollment.section_name || 'Not assigned' %></td>
+              <td data-label="Status"><%= enrollment.enrollment_status %></td>
+              <td data-label="Enrolled"><%= enrollment.enrolled_at ? new Date(enrollment.enrolled_at).toLocaleDateString() : '—' %></td>
+            </tr><% } %>
+          </tbody></table>
+        </div>
+      <% } else { %><p class="empty-state">This student has no enrollments.</p><% } %>
+      <form class="form-stack records-enrollment-form" method="post" action="/records/enrollments">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <input type="hidden" name="studentId" value="<%= student.id %>">
+        <h3>Save enrollment</h3>
+        <div class="admin-form-grid">
+          <div class="field"><label for="enrollment-term">Academic term</label><select id="enrollment-term" name="academicTermId" required><option value="">Choose a term</option><% for (const term of terms) { %><option value="<%= term.id %>"><%= term.school_year %> · <%= term.term %></option><% } %></select></div>
+          <div class="field"><label for="enrollment-section">Section (optional)</label><select id="enrollment-section" name="sectionId"><option value="">No section assigned</option><% for (const section of sections) { %><option value="<%= section.id %>"><%= section.name %><%= section.grade_level ? ` · ${section.grade_level}` : '' %> — <%= section.school_year %> · <%= section.term %></option><% } %></select></div>
+        </div>
+        <button class="button button--primary button--align-start" type="submit" <%= terms.length ? '' : 'disabled' %>>Save enrollment</button>
+      </form>
+    </section>
+  <% } %>
+</main>
+<%- include('../partials/foot') %>

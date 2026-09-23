@@ -14,7 +14,9 @@
 - Administrator changes write the account/profile and audit event in one serializable transaction; at least one active administrator must remain and self-demotion/deactivation is blocked.
 - Password resets use bcrypt and invalidate pending email sign-in codes; reset values and raw audit detail JSON are never rendered.
 - Student account links are checked against an existing unlinked student number, and role changes preserve student records while clearing an obsolete login link.
-- Students can only read their own student records.
+- Student profile, term, section, and enrollment mutations require an active registrar or database administrator, CSRF validation, parameterized SQL, and an audit event in the same transaction.
+- Enrollment section assignments are checked against the selected academic term and the database composite foreign key remains authoritative.
+- Students can only read their own student profile and enrollment history through the authenticated account link; student record IDs are not accepted by that self-view.
 - SQL queries are parameterized.
 - Uploads have allowlisted MIME types/extensions.
 - Upload size is limited.

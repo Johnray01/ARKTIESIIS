@@ -1,16 +1,21 @@
 <%- include('../partials/head', { title }) %>
 <main class="page-shell dashboard-page" id="main-content">
   <section class="dashboard-heading">
-    <h1>Registrar dashboard</h1>
-    <p>ARKTIESIIS workspace</p>
+    <div>
+      <h1>Registrar dashboard</h1>
+      <p>ARKTIESIIS workspace</p>
+    </div>
+    <div class="admin-heading-actions">
+      <a class="button button--primary" href="/records">Student records</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="button button--secondary" type="submit">Sign out</button>
+      </form>
+    </div>
   </section>
   <section class="placeholder-state" aria-labelledby="placeholder-title">
-    <h2 id="placeholder-title">Dashboard placeholder</h2>
-    <p>Registrar tools are not available in this build.</p>
+    <h2 id="placeholder-title">Student records workspace</h2>
+    <p>Manage student profiles, academic terms, sections, and enrollment history.</p>
   </section>
-  <form class="dashboard-actions" method="post" action="/logout">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <button class="button button--secondary" type="submit">Sign out</button>
-  </form>
 </main>
 <%- include('../partials/foot') %>

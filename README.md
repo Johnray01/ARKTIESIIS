@@ -95,7 +95,7 @@ Only active `database_admin` accounts can use `/admin`. Administrators can searc
 Staff accounts use `staff_profiles`. A student login can only be attached to an existing unlinked `students` record by student number. Changing a student account to a staff role clears that login link and preserves the student record and its academic history. Student record creation and editing remain in Phase 5. Existing databases need no Phase 4 migration.
 
 ## Current starter status
-This repository contains the project foundation, Phases 2–3 authentication, and Phase 4 database administration. Student records, academic records, finance, document upload, and Document AI workflows are implemented phase by phase.
+This repository contains the project foundation, Phases 2–3 authentication, Phase 4 database administration, and Phase 5 student records. Academic records, finance, document upload, and Document AI workflows are implemented phase by phase.
 
 ## Recommended workflow with Codex
 Start with the content of `CODEX_START_PROMPT.md`.

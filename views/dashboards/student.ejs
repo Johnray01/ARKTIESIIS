@@ -1,16 +1,47 @@
 <%- include('../partials/head', { title }) %>
-<main class="page-shell dashboard-page" id="main-content">
+<main class="page-shell dashboard-page records-page" id="main-content">
   <section class="dashboard-heading">
-    <h1>Student dashboard</h1>
-    <p>ARKTIESIIS workspace</p>
+    <div>
+      <h1>My student record</h1>
+      <p>ARKTIESIIS workspace</p>
+    </div>
+    <form method="post" action="/logout">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="button button--secondary" type="submit">Sign out</button>
+    </form>
   </section>
-  <section class="placeholder-state" aria-labelledby="placeholder-title">
-    <h2 id="placeholder-title">Dashboard placeholder</h2>
-    <p>Student tools are not available in this build.</p>
-  </section>
-  <form class="dashboard-actions" method="post" action="/logout">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <button class="button button--secondary" type="submit">Sign out</button>
-  </form>
+  <% if (ownRecords) { %>
+    <section class="admin-section" aria-labelledby="profile-title">
+      <div class="admin-section__heading"><div><h2 id="profile-title">Profile</h2><p>Your profile details and academic records linked to this account.</p></div></div>
+      <dl class="student-profile-grid">
+        <div><dt>Student number</dt><dd><%= ownRecords.student.student_no %></dd></div>
+        <div><dt>Name</dt><dd><%= [ownRecords.student.first_name, ownRecords.student.middle_name, ownRecords.student.last_name, ownRecords.student.suffix].filter(Boolean).join(' ') %></dd></div>
+        <div><dt>Birth date</dt><dd><%= ownRecords.student.birth_date ? new Date(ownRecords.student.birth_date).toLocaleDateString() : 'Not provided' %></dd></div>
+        <div><dt>Sex</dt><dd><%= ownRecords.student.sex || 'Not provided' %></dd></div>
+        <div><dt>Phone</dt><dd><%= ownRecords.student.phone || 'Not provided' %></dd></div>
+        <div><dt>Address</dt><dd><%= ownRecords.student.address || 'Not provided' %></dd></div>
+      </dl>
+    </section>
+    <section class="admin-section" aria-labelledby="enrollments-title">
+      <div class="admin-section__heading"><div><h2 id="enrollments-title">Enrollment history</h2><p>Academic term and section information linked to your student record.</p></div></div>
+      <% if (ownRecords.enrollments.length) { %>
+        <div class="table-scroll" tabindex="0" aria-label="Your enrollment history">
+          <table class="admin-table"><thead><tr><th scope="col">Academic term</th><th scope="col">Section</th><th scope="col">Status</th><th scope="col">Current term</th></tr></thead><tbody>
+            <% for (const enrollment of ownRecords.enrollments) { %><tr>
+              <td data-label="Academic term"><%= enrollment.school_year %> · <%= enrollment.term %></td>
+              <td data-label="Section"><%= enrollment.section_name || 'Not assigned' %></td>
+              <td data-label="Status"><%= enrollment.enrollment_status %></td>
+              <td data-label="Current term"><%= enrollment.is_current ? 'Yes' : 'No' %></td>
+            </tr><% } %>
+          </tbody></table>
+        </div>
+      <% } else { %><p class="empty-state">No enrollment records are linked to your account.</p><% } %>
+    </section>
+  <% } else { %>
+    <section class="placeholder-state" aria-labelledby="profile-unavailable-title">
+      <h2 id="profile-unavailable-title">Student profile is not linked</h2>
+      <p>Contact the registrar to link your login to your student record.</p>
+    </section>
+  <% } %>
 </main>
 <%- include('../partials/foot') %>

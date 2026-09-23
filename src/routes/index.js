@@ -15,6 +15,8 @@ const {
 } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { createAdminRouter } = require('./admin');
+const { createStudentRecordsRouter } = require('./studentRecords');
+const { createStudentRecordsService } = require('../services/studentRecordsService');
 
 const credentialError = 'Invalid email or password.';
 // Fixed cost-12 hash for timing equalization; no account uses its discarded random source value.
@@ -41,9 +43,10 @@ async function verifyPassword(user, password, comparePassword = bcrypt.compare) 
   return Boolean(active && passwordMatches);
 }
 
-function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService } = {}) {
+function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth({ getPool, sql, environment });
+  const recordsService = studentRecordsService || createStudentRecordsService({ getPool, sql });
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 10,
@@ -105,6 +108,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
   };
 
   router.use('/admin', requireAuth, requireRole('database_admin'), createAdminRouter({ getPool, sql, adminService }));
+  router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createStudentRecordsRouter({ getPool, sql, studentRecordsService: recordsService }));
 
   router.get('/', (req, res) => {
     res.render('home', { title: 'ARKTIESIIS' });
@@ -303,8 +307,21 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
 
   router.get('/dashboard/database-admin', requireAuth, requireRole('database_admin'), (req, res) => res.redirect(303, '/admin'));
 
+  router.get('/dashboard/student', requireAuth, requireRole('student'), async (req, res) => {
+    try {
+      const ownRecords = await recordsService.getOwnStudentRecord(req.authUser.id);
+      return res.render('dashboards/student', {
+        title: dashboardViews.student.title,
+        csrfToken: ensureCsrfToken(req),
+        ownRecords
+      });
+    } catch {
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'Student records are temporarily unavailable.' });
+    }
+  });
+
   for (const [role, dashboard] of Object.entries(dashboardViews)) {
-    if (role === 'database_admin') continue;
+    if (role === 'database_admin' || role === 'student') continue;
     router.get(dashboard.path, requireAuth, requireRole(role), (req, res) => {
       res.render(dashboard.view, {
         title: dashboard.title,
