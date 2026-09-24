@@ -1,4 +1,4 @@
-const app = require('./app');
+const { createApp } = require('./app');
 const env = require('./config/environment');
 const { getPool } = require('./config/database');
 const { createDocumentProcessingService, startProcessingRecoveryScheduler } = require('./services/documentProcessingService');
@@ -12,7 +12,9 @@ async function start() {
     return null;
   }
 
-  const processingRecovery = startProcessingRecoveryScheduler(createDocumentProcessingService({ getPool }));
+  const processingService = createDocumentProcessingService({ getPool });
+  const app = createApp({ documentProcessingService: processingService });
+  const processingRecovery = startProcessingRecoveryScheduler(processingService);
   await processingRecovery.run();
 
   const server = app.listen(env.port, () => {

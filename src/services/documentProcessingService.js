@@ -2,7 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { getPool: defaultGetPool, sql: defaultSql } = require('../config/database');
 const defaultEnvironment = require('../config/environment');
-const documentAIService = require('./documentAIService');
+const { createLocalOcrService } = require('./localOcrService');
 
 const MIME_BY_EXTENSION = new Map([
   ['.pdf', 'application/pdf'],
@@ -11,11 +11,12 @@ const MIME_BY_EXTENSION = new Map([
   ['.png', 'image/png']
 ]);
 const STORED_NAME_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|jpg|jpeg|png)$/i;
-const TIMEOUT_ERROR_CODE = 'DOCUMENT_AI_TIMEOUT';
+const OCR_TIMEOUT_CODE = 'OCR_TIMEOUT';
 const PROCESSING_RECOVERY_GRACE_MS = 30000;
 const PROCESSING_RECOVERY_INTERVAL_MS = 30000;
 const PROCESSING_RECOVERY_BATCH_SIZE = 100;
 const PROCESSING_RECOVERY_MESSAGE = 'OCR processing did not finish within the recovery window. Staff review is required.';
+const PROCESSING_LABEL = 'Tesseract OCR';
 
 class DocumentProcessingError extends Error {
   constructor(message, status = 503) {
@@ -34,29 +35,36 @@ function normalizeOcrDocument(document) {
   return { outcome: 'extracted', extractedText };
 }
 
-function withTimeout(promise, timeoutMs) {
+function withTimeout(operation, timeoutMs) {
+  const controller = new AbortController();
   let timeout;
   const timeoutPromise = new Promise((resolve, reject) => {
     timeout = setTimeout(() => {
-      const error = new Error('Document AI request timed out.');
-      error.code = TIMEOUT_ERROR_CODE;
+      controller.abort();
+      const error = new Error('Local OCR processing timed out.');
+      error.code = OCR_TIMEOUT_CODE;
       reject(error);
     }, timeoutMs);
   });
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
+  const operationPromise = Promise.resolve().then(() => operation(controller.signal));
+  return Promise.race([operationPromise, timeoutPromise]).finally(() => clearTimeout(timeout));
 }
 
 function createDocumentProcessingService({
   getPool = defaultGetPool,
   sql = defaultSql,
   transactionFactory = (pool) => new sql.Transaction(pool),
-  documentAI = documentAIService,
-  documentAIConfig = defaultEnvironment.documentAI,
+  localOcr,
+  ocrConfig = defaultEnvironment.ocr,
   storageDirectory = defaultEnvironment.upload.storageDirectory,
-  timeoutMs = defaultEnvironment.documentAI.timeoutMs,
+  maxFileBytes = Math.floor(defaultEnvironment.upload.maxMb * 1024 * 1024),
+  timeoutMs = defaultEnvironment.ocr.timeoutMs,
+  concurrency = defaultEnvironment.ocr.concurrency,
   recoveryGraceMs = PROCESSING_RECOVERY_GRACE_MS,
   recoveryBatchSize = PROCESSING_RECOVERY_BATCH_SIZE,
-  fileSystem = fs
+  fileSystem = fs,
+  logger = console,
+  setImmediateFn = setImmediate
 } = {}) {
   const storageRoot = path.resolve(storageDirectory);
   const publicRoot = path.resolve(__dirname, '../../public');
@@ -65,20 +73,31 @@ function createDocumentProcessingService({
   }
   const requestTimeoutMs = Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 120000
     ? timeoutMs
-    : 30000;
+    : 60000;
+  const workerConcurrency = Number.isSafeInteger(concurrency) && concurrency >= 1 && concurrency <= 4
+    ? concurrency
+    : 2;
+  const uploadLimitBytes = Number.isSafeInteger(maxFileBytes) && maxFileBytes > 0 ? maxFileBytes : 10 * 1024 * 1024;
+  const ocrEngine = localOcr || createLocalOcrService({
+    ocrConfig,
+    uploadConfig: { maxMb: uploadLimitBytes / (1024 * 1024) }
+  });
   const staleAfterMs = requestTimeoutMs + (Number.isSafeInteger(recoveryGraceMs) && recoveryGraceMs >= 1000 && recoveryGraceMs <= 300000
     ? recoveryGraceMs
     : PROCESSING_RECOVERY_GRACE_MS);
   const recoveryLimit = Number.isSafeInteger(recoveryBatchSize) && recoveryBatchSize >= 1 && recoveryBatchSize <= 1000
     ? recoveryBatchSize
     : PROCESSING_RECOVERY_BATCH_SIZE;
+  let activeJobCount = 0;
+  let queueScanActive = false;
+  let queueScanScheduled = false;
 
-  async function runTransaction(callback) {
+  async function runTransaction(callback, isolationLevel = sql.ISOLATION_LEVEL.SERIALIZABLE) {
     const pool = await getPool();
     const transaction = transactionFactory(pool);
     let started = false;
     try {
-      await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+      await transaction.begin(isolationLevel);
       started = true;
       const result = await callback(transaction);
       await transaction.commit();
@@ -107,6 +126,25 @@ function createDocumentProcessingService({
           WHERE id = @documentId AND status = 'pending'`);
       return result.recordset?.[0] || null;
     });
+  }
+
+  async function claimNextPendingDocument() {
+    return runTransaction(async (transaction) => {
+      const result = await transaction.request()
+        .query(`;WITH next_pending AS (
+            SELECT TOP (1) id
+            FROM dbo.documents WITH (UPDLOCK, READPAST, READCOMMITTEDLOCK)
+            WHERE status = 'pending'
+            ORDER BY created_at, id
+          )
+          UPDATE d
+          SET status = 'processing', processing_started_at = SYSUTCDATETIME()
+          OUTPUT INSERTED.id AS id, INSERTED.stored_filename AS stored_filename,
+            INSERTED.mime_type AS mime_type, INSERTED.document_type AS document_type
+          FROM dbo.documents AS d
+          INNER JOIN next_pending AS pending ON pending.id = d.id`);
+      return result.recordset?.[0] || null;
+    }, sql.ISOLATION_LEVEL.READ_COMMITTED);
   }
 
   async function ensurePrivateStorageRoot() {
@@ -146,7 +184,7 @@ function createDocumentProcessingService({
   function normalizeOutcome(document) {
     const normalized = normalizeOcrDocument(document);
     if (normalized.outcome === 'malformed_response') {
-      return failureOutcome('malformed_response', 'The OCR service returned an unreadable result. Staff review is required.');
+      return failureOutcome('malformed_response', 'The OCR utility returned an unreadable result. Staff review is required.');
     }
     if (normalized.outcome === 'empty_ocr') {
       return {
@@ -164,6 +202,31 @@ function createDocumentProcessingService({
       code: 'extracted',
       message: 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'
     };
+  }
+
+  function safeFailureFor(error) {
+    if (error?.code === OCR_TIMEOUT_CODE || error?.code === 'ETIMEDOUT' || error?.code === 'ABORT_ERR') {
+      return failureOutcome('processor_timeout', 'OCR processing timed out. Staff review is required.');
+    }
+    if (error?.code === 'OCR_BINARY_UNAVAILABLE' || error?.code === 'ENOENT') {
+      return failureOutcome('processor_unavailable', 'A local OCR utility is unavailable. Staff review is required.');
+    }
+    if (error?.code === 'OCR_INVALID_DOCUMENT') {
+      return failureOutcome('malformed_document', 'The file could not be read by the local OCR tools. Submit an unprotected, readable file.');
+    }
+    if (error?.code === 'OCR_FILE_UNAVAILABLE') {
+      return failureOutcome('stored_file_unavailable', 'The stored document is unavailable. Staff review is required.');
+    }
+    if (error?.code === 'OCR_PAGE_LIMIT') {
+      return failureOutcome('page_limit', 'The PDF exceeds the configured page limit. Submit a shorter PDF.');
+    }
+    if (error?.code === 'OCR_OUTPUT_LIMIT') {
+      return failureOutcome('output_limit', 'The extracted text exceeded the supported size. Staff review is required.');
+    }
+    if (error instanceof DocumentProcessingError && error.status === 404) {
+      return failureOutcome('stored_file_unavailable', 'The stored document is unavailable. Staff review is required.');
+    }
+    return failureOutcome('processor_error', 'The local OCR tools could not process this file. Staff review is required.');
   }
 
   async function saveOutcome(documentId, outcome) {
@@ -184,7 +247,7 @@ function createDocumentProcessingService({
       });
       await transaction.request()
         .input('documentId', sql.Int, documentId)
-        .input('processor', sql.NVarChar(100), 'Google Document AI')
+        .input('processor', sql.NVarChar(100), PROCESSING_LABEL)
         .input('extractedText', sql.NVarChar(sql.MAX), outcome.extractedText)
         .input('validationJson', sql.NVarChar(sql.MAX), validationJson)
         .input('resultStatus', sql.NVarChar(30), outcome.resultStatus)
@@ -201,7 +264,7 @@ function createDocumentProcessingService({
       const result = await transaction.request()
         .input('staleAfterMs', sql.Int, staleAfterMs)
         .input('batchSize', sql.Int, recoveryLimit)
-        .input('processor', sql.NVarChar(100), 'Google Document AI')
+        .input('processor', sql.NVarChar(100), PROCESSING_LABEL)
         .input('validationJson', sql.NVarChar(sql.MAX), JSON.stringify({
           stage: 'ocr',
           outcome: 'processing_recovered',
@@ -235,6 +298,36 @@ function createDocumentProcessingService({
     });
   }
 
+  async function processClaimedDocument(document) {
+    let outcome;
+    try {
+      await ensurePrivateStorageRoot();
+      const filePath = resolveStoredPath(document.stored_filename, document.mime_type);
+      const result = await withTimeout(
+        (signal) => ocrEngine.processDocument(filePath, document.mime_type, {
+          signal,
+          timeoutMs: requestTimeoutMs,
+          language: ocrConfig?.language
+        }),
+        requestTimeoutMs
+      );
+      outcome = normalizeOutcome(result);
+    } catch (error) {
+      outcome = safeFailureFor(error);
+    }
+
+    let saved;
+    try {
+      saved = await saveOutcome(document.id, outcome);
+    } catch {
+      throw new DocumentProcessingError('The upload was saved, but its processing result could not be recorded. Contact a registrar.');
+    }
+    if (!saved) {
+      throw new DocumentProcessingError('The processing result could not be recorded because the submission state changed. Contact a registrar.');
+    }
+    return { documentId: document.id, status: outcome.documentStatus, resultStatus: outcome.resultStatus, code: outcome.code };
+  }
+
   async function processPendingDocument(documentInput) {
     const documentId = Number(documentInput);
     if (!Number.isSafeInteger(documentId) || documentId < 1 || documentId > 2147483647) {
@@ -243,43 +336,53 @@ function createDocumentProcessingService({
 
     const document = await startProcessing(documentId);
     if (!document) return { documentId, status: 'not_pending' };
-
-    let outcome;
-    if (!documentAIConfig?.projectId || !documentAIConfig?.processorId) {
-      outcome = failureOutcome('processor_not_configured', 'Document processing is not configured. Staff review is required.');
-    } else {
-      try {
-        await ensurePrivateStorageRoot();
-        const filePath = resolveStoredPath(document.stored_filename, document.mime_type);
-        const documentResult = await withTimeout(
-          documentAI.processDocument(filePath, document.mime_type, { timeoutMs: requestTimeoutMs }),
-          requestTimeoutMs
-        );
-        outcome = normalizeOutcome(documentResult);
-      } catch (error) {
-        if (error?.code === TIMEOUT_ERROR_CODE) {
-          outcome = failureOutcome('processor_timeout', 'OCR processing timed out. Staff review is required.');
-        } else if (error instanceof DocumentProcessingError && error.status === 404) {
-          outcome = failureOutcome('stored_file_unavailable', 'The stored file could not be read. Staff review is required.');
-        } else {
-          outcome = failureOutcome('processor_error', 'The OCR service could not process this file. Staff review is required.');
-        }
-      }
-    }
-
-    let saved;
-    try {
-      saved = await saveOutcome(documentId, outcome);
-    } catch {
-      throw new DocumentProcessingError('The upload was saved, but its processing result could not be recorded. Contact a registrar.');
-    }
-    if (!saved) {
-      throw new DocumentProcessingError('The processing result could not be recorded because the submission state changed. Contact a registrar.');
-    }
-    return { documentId, status: outcome.documentStatus, resultStatus: outcome.resultStatus, code: outcome.code };
+    return processClaimedDocument(document);
   }
 
-  return { processPendingDocument, recoverStaleProcessing };
+  async function processPendingQueue() {
+    if (queueScanActive) return 0;
+    queueScanActive = true;
+    let claimed = 0;
+    try {
+      while (activeJobCount < workerConcurrency) {
+        let document;
+        try {
+          document = await claimNextPendingDocument();
+        } catch {
+          logger.error('Pending document processing scan failed.');
+          break;
+        }
+        if (!document) break;
+        claimed += 1;
+        activeJobCount += 1;
+        void processClaimedDocument(document)
+          .catch(() => logger.error('Document processing result could not be saved.'))
+          .finally(() => {
+            activeJobCount -= 1;
+            schedulePendingProcessing();
+          });
+      }
+    } finally {
+      queueScanActive = false;
+    }
+    return claimed;
+  }
+
+  function schedulePendingProcessing() {
+    if (queueScanScheduled) return;
+    queueScanScheduled = true;
+    setImmediateFn(() => {
+      queueScanScheduled = false;
+      void processPendingQueue();
+    });
+  }
+
+  return {
+    processPendingDocument,
+    processPendingQueue,
+    recoverStaleProcessing,
+    schedulePendingProcessing
+  };
 }
 
 function startProcessingRecoveryScheduler(processingService, {
@@ -297,8 +400,9 @@ function startProcessingRecoveryScheduler(processingService, {
     if (activeRun) return activeRun;
     activeRun = Promise.resolve()
       .then(() => processingService.recoverStaleProcessing())
+      .then(() => processingService.processPendingQueue?.())
       .catch(() => {
-        logger.error('Stale document processing recovery failed.');
+        logger.error('Document processing recovery scan failed.');
         return null;
       })
       .finally(() => { activeRun = null; });

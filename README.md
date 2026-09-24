@@ -8,7 +8,7 @@ Starter repository for the thesis system of Ark Technological Institute Educatio
 - Node.js + Express.js
 - EJS / HTML / CSS / JavaScript
 - Microsoft SQL Server
-- Google Document AI
+- Local Tesseract OCR and Poppler PDF utilities
 - Email-based two-factor authentication
 
 ## Important terminology
@@ -111,16 +111,24 @@ npm run demo:seed -- --dry-run
 npm run demo:seed -- --apply
 ```
 
-Both commands require `NODE_ENV=development`; database writes require the explicit `--apply` flag. `SMTP_USER` must be a valid Gmail or Googlemail address so the script can derive separate plus-address aliases. On first apply, random passwords and aliases are saved in ignored `.env.demo` with owner-only permissions and are never printed. The seed includes three fake students, demo academic records, and a matching finance ledger. It creates no documents or Document AI records. Re-running after a successful seed adds nothing; conflicting pre-existing demo keys abort the transaction without changing existing data. See [scripts/README.md](scripts/README.md).
+Both commands require `NODE_ENV=development`; database writes require the explicit `--apply` flag. `SMTP_USER` must be a valid Gmail or Googlemail address so the script can derive separate plus-address aliases. On first apply, random passwords and aliases are saved in ignored `.env.demo` with owner-only permissions and are never printed. The seed includes three fake students, demo academic records, and a matching finance ledger. It creates no documents or OCR records. Re-running after a successful seed adds nothing; conflicting pre-existing demo keys abort the transaction without changing existing data. See [scripts/README.md](scripts/README.md).
 
 ## Document management
 
 Active students can upload and retrieve their own Good Moral Certificates and report cards. Registrars and database administrators can search submissions, upload documents for student records, send a submission for staff review, and request a corrected upload. Form 137 and PSA birth certificates are restricted to those staff roles. Finance accounts have no document access. Downloads recheck the current role and student ownership, and files are kept in the private `storage/uploads` directory by default (`DOCUMENT_STORAGE_DIR` can override it). `MAX_UPLOAD_MB` configures the size limit and defaults to 10 MB as a technical default, not an institution policy. Corrected uploads create a new submission linked to the earlier document; no retention period or automatic deletion is configured.
 
-Phase 8 document management does not run OCR or expose extracted text. Google Document AI integration and validation rules remain future work; institution-approved required fields and format/compliance rules have not been supplied.
+### Local document OCR
+
+Install Tesseract with English language data and Poppler utilities (`pdfinfo` and `pdftoppm`) on the server. See the [official Tesseract installation guide](https://github.com/tesseract-ocr/tessdoc/blob/main/Installation.md). Set `TESSERACT_PATH`, `PDFINFO_PATH`, and `PDFTOPPM_PATH` in `.env` if they are not on `PATH`; executable paths may contain spaces. The worker uses `OCR_LANGUAGE=eng`, a 60-second bounded timeout, and two concurrent jobs by default. It handles up to 20 PDF pages per submission (`OCR_MAX_PDF_PAGES` can lower that limit), renders one page at a time, and runs in the background after upload. `OCR_TIMEOUT_MS` accepts 1–120 seconds, `OCR_CONCURRENCY` accepts 1–4 workers, and `OCR_MAX_PDF_PAGES` accepts 1–20. OCR output is available only to registrars and database administrators and remains `needs_review` until Phase 10 rules are approved. OCR does not classify documents or determine authenticity.
+
+The native Tesseract/Poppler runtime acceptance gate remains pending until the tools and English trained data are installed and real Windows image/PDF smoke checks pass. Unit tests use mocked command results and do not establish live OCR availability.
+
+To check an installed native runtime against synthetic image and PDF samples, configure the executable paths if needed and run `npm run ocr:smoke`. The command verifies extracted phrases, two-page order, and private temporary-file cleanup without using SQL Server. On Windows, set `TESSERACT_PATH`, `PDFINFO_PATH`, and `PDFTOPPM_PATH` in PowerShell; paths containing spaces are supported.
+
+See [scripts/README.md](scripts/README.md) for a PowerShell example using executable paths with spaces.
 
 ## Current starter status
-This repository contains the project foundation, email authentication, database administration, student and academic records, the Phase 7 finance workspace, and Phase 8 document management. Google Document AI integration and institution-approved validation rules remain for later phases.
+This repository contains the project foundation, email authentication, database administration, student and academic records, the Phase 7 finance workspace, Phase 8 document management, and the Phase 9 local OCR workflow. Real native-tool acceptance remains pending; institution-approved validation rules remain paused for Phase 10.
 
 ## Recommended workflow with Codex
 Start with the content of `CODEX_START_PROMPT.md`.

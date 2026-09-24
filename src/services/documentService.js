@@ -17,12 +17,15 @@ const STORED_NAME_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f
 const OCR_MESSAGES = new Map([
   ['extracted', 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'],
   ['empty_ocr', 'No readable text was extracted. Staff review is required.'],
-  ['malformed_response', 'The OCR service returned an unreadable result. Staff review is required.'],
-  ['processor_not_configured', 'Document processing is not configured. Staff review is required.'],
+  ['malformed_response', 'The local OCR tools returned an unreadable result. Staff review is required.'],
+  ['processor_unavailable', 'A local OCR utility is unavailable. Staff review is required.'],
   ['processor_timeout', 'OCR processing timed out. Staff review is required.'],
+  ['malformed_document', 'The file could not be read by the local OCR tools. Submit an unprotected, readable file.'],
+  ['page_limit', 'The PDF exceeds the configured page limit. Submit a shorter PDF.'],
+  ['output_limit', 'The extracted text exceeded the supported size. Staff review is required.'],
   ['processing_recovered', 'OCR processing did not finish within the recovery window. Staff review is required.'],
   ['stored_file_unavailable', 'The stored file could not be read. Staff review is required.'],
-  ['processor_error', 'The OCR service could not process this file. Staff review is required.']
+  ['processor_error', 'The local OCR tools could not process this file. Staff review is required.']
 ]);
 
 class DocumentServiceError extends Error {

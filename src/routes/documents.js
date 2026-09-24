@@ -47,8 +47,10 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     getPool,
     sql,
     storageDirectory: environment?.upload?.storageDirectory,
-    documentAIConfig: environment?.documentAI,
-    timeoutMs: environment?.documentAI?.timeoutMs
+    maxFileBytes: configuredMaxBytes(environment),
+    ocrConfig: environment?.ocr,
+    timeoutMs: environment?.ocr?.timeoutMs,
+    concurrency: environment?.ocr?.concurrency
   });
   const maxUploadBytes = configuredMaxBytes(environment);
   const uploadMaxMb = configuredMaxMegabytes(environment);
@@ -95,9 +97,7 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         error,
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
-          : req.query.notice === 'processingPending'
-            ? 'The upload was saved, but its processing result could not be recorded. Contact a registrar.'
-            : null,
+          : null,
         documentTypeLabel
       });
     } catch (loadError) {
@@ -120,9 +120,7 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         error,
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
-          : req.query.notice === 'processingPending'
-            ? 'The upload was saved, but its processing result could not be recorded. Contact a registrar.'
-            : null,
+          : null,
         documentTypeLabel
       });
     } catch (loadError) {
@@ -138,13 +136,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     }
     try {
       const result = await service.upload(req.authUser.id, req.body, req.file);
-      let notice = 'uploaded';
-      try {
-        await processingService.processPendingDocument(result.id);
-      } catch {
-        notice = 'processingPending';
-      }
-      return res.redirect(303, `/documents/${result.id}?notice=${notice}`);
+      processingService.schedulePendingProcessing();
+      return res.redirect(303, `/documents/${result.id}?notice=uploaded`);
     } catch (error) {
       return renderError(res, error, 'The document could not be uploaded.');
     }
@@ -164,13 +157,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
     try {
       const result = await service.upload(req.authUser.id, { ...req.body, studentId }, req.file);
-      let notice = 'uploaded';
-      try {
-        await processingService.processPendingDocument(result.id);
-      } catch {
-        notice = 'processingPending';
-      }
-      return res.redirect(303, `/documents/students/${studentId}?notice=${notice}`);
+      processingService.schedulePendingProcessing();
+      return res.redirect(303, `/documents/students/${studentId}?notice=uploaded`);
     } catch (error) {
       if (error instanceof DocumentServiceError && error.status < 500) {
         return renderStudentDocuments(req, res, studentId, { status: error.status, error: error.message });
@@ -197,8 +185,6 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         error: null,
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
-          : req.query.notice === 'processingPending'
-            ? 'The upload was saved, but its processing result could not be recorded. Contact a registrar.'
           : req.query.notice === 'reviewRequested'
             ? 'Document sent for staff review.'
             : req.query.notice === 'correctionRequested'
@@ -264,13 +250,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     }
     try {
       const result = await service.reupload(req.authUser.id, req.params.id, req.file);
-      let notice = 'uploaded';
-      try {
-        await processingService.processPendingDocument(result.id);
-      } catch {
-        notice = 'processingPending';
-      }
-      return res.redirect(303, `/documents/${result.id}?notice=${notice}`);
+      processingService.schedulePendingProcessing();
+      return res.redirect(303, `/documents/${result.id}?notice=uploaded`);
     } catch (error) {
       return renderError(res, error, 'The corrected document could not be uploaded.');
     }

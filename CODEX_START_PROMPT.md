@@ -8,11 +8,11 @@ Fixed stack:
 - Node.js + Express.js
 - EJS / HTML / CSS / JavaScript
 - Microsoft SQL Server
-- Google Document AI
+- Local Tesseract OCR and Poppler PDF utilities
 - Email-based 2FA
 
 Important AI limitation:
-Google Document AI is only used for OCR, data extraction, completeness checking, and configured format validation. The system must never claim to perform fraud detection, forensic verification, signature verification, seal verification, or prove authenticity.
+Local Tesseract OCR is used for text extraction. Required-field, completeness, and configured format checks may be added only after institution-approved rules are supplied. The system must never claim to perform fraud detection, forensic verification, signature verification, seal verification, or prove authenticity.
 
 For this first session:
 1. Inspect the current starter and thesis requirements.

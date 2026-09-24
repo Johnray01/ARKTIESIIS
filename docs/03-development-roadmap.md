@@ -80,11 +80,12 @@
 - Student document history/status.
 - Re-upload flow.
 
-## Phase 9 - Google Document AI
-- Configure service account securely.
-- Send PDF/image files to processor.
-- Store normalized extraction result.
-- Handle API errors/timeouts safely.
+## Phase 9 - Local OCR
+- Configure local Tesseract and Poppler executable paths and English OCR language.
+- Render PDF pages individually and process supported images/PDFs with native command-line tools.
+- Store normalized extraction results on immutable submissions and show OCR only to authorized staff.
+- Bound PDF page count, worker concurrency, output size, and processing time; recover stale jobs safely.
+- Keep role checks, file storage, and upload limit from Phase 8; do not classify documents or claim authenticity.
 
 ## Phase 10 - Validation Rules
 - Define required fields per document type.

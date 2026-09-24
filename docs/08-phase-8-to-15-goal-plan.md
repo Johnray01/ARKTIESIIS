@@ -1,12 +1,12 @@
 # Goal Plan: Phases 8–15
 
-The development roadmap marks Phases 1–7 complete. This plan is split into two separate Goal Mode runs in the existing roadmap order. Goal 1 covers Phases 8–10: secure document management, Google Document AI integration, and configurable validation. Goal 2 covers Phases 11–15 and may start only after Goal 1 is complete. Keep each phase reviewable, commit each completed phase locally after its acceptance gate passes, and never push. Use the same local checkout for both runs so the docs and completed work remain available. Do not overlap the goals or begin Goal 2 early.
+The development roadmap marks Phases 1–7 complete. This plan is split into two separate Goal Mode runs in the existing roadmap order. Goal 1 covers Phases 8–10: secure document management, local OCR, and configurable validation. Goal 2 covers Phases 11–15 and may start only after Goal 1 is complete. Phase 10 remains paused until the institution supplies approved document requirements and review rules. Keep each phase reviewable and create one local commit for each completed phase after its acceptance gate passes; never push. The user has authorized the Phase 9 commit only after the full native OCR acceptance gate passes on Linux and Windows. Use the same local checkout for both runs so the docs and completed work remain available. Do not overlap the goals or begin Goal 2 early.
 
 ## Current repository state
 
-- `database/schema.sql` already defines `documents` and `document_validations`, the four approved document types, file metadata, uploader, processing/review fields, and status constraints. The baseline is version `001`; migrations `002` and `003` add two-factor limits and document revision/review-event support. The pending migration `004` adds the processing lease timestamp/index used by stale OCR recovery. Schema changes use new numbered, forward-only migrations.
-- `src/config/environment.js` reads the Google Document AI project, location, processor, and bounded request timeout settings along with `MAX_UPLOAD_MB` (default 10 MB).
-- `src/config/documentAI.js` configures the regional Document AI client endpoint and processor resource name. `src/services/documentAIService.js` sends a securely opened private file to the configured processor. `src/services/documentProcessingService.js` claims each pending immutable submission, applies bounded provider timeouts, recovers stale processing leases to a safe failed result, normalizes OCR outcomes, and stores a per-submission result. `src/server.js` starts the bounded recovery scan after database connection and repeats it periodically. `src/services/documentValidationService.js` has a basic required-text helper; it is not yet wired to institution-approved rules.
+- `database/schema.sql` defines `documents` and `document_validations`, the four approved document types, file metadata, uploader, processing/review fields, and status constraints. The baseline is version `001`; migrations `002` and `003` add two-factor limits and document revision/review-event support; migration `004` adds processing leases; migration `005` changes the default processor label while preserving existing validation rows. Schema changes use new numbered, forward-only migrations.
+- `src/config/environment.js` reads configurable Tesseract/Poppler executable paths, English OCR language, a bounded timeout, bounded worker concurrency, and `MAX_UPLOAD_MB` (default 10 MB).
+- `src/services/localOcrService.js` securely copies a private upload into a temporary directory, uses `pdfinfo` and page-by-page `pdftoppm` rendering for PDFs, and calls Tesseract with native `execFile` argument arrays. `src/services/documentProcessingService.js` atomically claims pending immutable submissions, bounds concurrency/time/output/page count, recovers stale processing leases to a safe failed result, normalizes OCR outcomes, and stores a per-submission result. `src/server.js` starts the bounded queue/recovery scan after database connection and repeats it periodically. `src/services/documentValidationService.js` has a basic required-text helper; it is not yet wired to institution-approved rules.
 - Phase 8 connects upload, authorized private download, per-student document history, immutable corrected re-upload, review handoff, and correction requests. Phase 9 connects OCR and staff-only extraction display. Phase 10 institution-approved validation rules remain future work.
 - The existing role, CSRF, SQL, and audit patterns in the application should be followed. Do not change the one-time schema baseline to update an initialized database.
 
@@ -21,7 +21,7 @@ All permissions must be enforced on server routes and every file download. Stude
 | `database_admin` | Oversee, manage, review, and download | Oversee, manage, review, and download | Oversee, manage, review, and download | Oversee, manage, review, and download |
 | `finance` | No access | No access | No access | No access |
 
-“Manage” permits the authorized staff workflow for a school record; it does not grant a student access to another student's records. Record any material upload, re-upload, review, or administrative change through the existing audit approach without logging document contents, extracted text, secrets, or raw provider errors.
+“Manage” permits the authorized staff workflow for a school record; it does not grant a student access to another student's records. Record any material upload, re-upload, review, or administrative change through the existing audit approach without logging document contents, extracted text, secrets, or raw command/database errors.
 
 ## Phase 8 — Document Management
 
@@ -42,20 +42,23 @@ All permissions must be enforced on server routes and every file download. Stude
 - Re-upload creates a new submission while prior files, statuses, validation results, and review history remain available to authorized staff.
 - Mutations use CSRF checks, parameterized SQL, and audit events consistent with existing application patterns.
 
-## Phase 9 — Google Document AI
+## Phase 9 — Local OCR with Tesseract and Poppler
 
-1. Keep the configured Google Cloud project, location, processor ID, and credentials in environment/runtime configuration. Do not commit service-account keys or log credential material.
-2. Call the existing `documentAIService.processDocument` only for a securely stored, authorized upload with a supported MIME type. Add safe timeout and provider-error handling at the integration boundary.
-3. Move a submitted document through the existing `pending` and `processing` states. Persist a normalized extraction result in `document_validations`; limit access to extracted text because it contains student information.
-4. Handle successful extraction, empty/unreadable output, missing configuration, provider rejection, timeout, and transient service failure. Store a safe result/status and user-facing retry or review guidance; never expose raw provider or database errors.
-5. Do not classify documents or infer authenticity. OCR output is untrusted input: escape it in views, do not execute it, and pass only the uploader-selected type to validation.
+1. Require local Tesseract with English trained data and Poppler's `pdfinfo`/`pdftoppm`; configure executable paths, language, timeout, and concurrency through runtime environment settings. Windows paths may contain spaces and must be passed directly without a shell.
+2. Keep uploads in private storage. Copy a verified regular file to a private temporary directory, call Tesseract directly for JPEG/PNG, and use `pdfinfo` then page-by-page `pdftoppm` rendering plus Tesseract for PDFs. Clean rendered pages immediately and always remove the private temporary directory.
+3. Enforce a technical 20-page PDF maximum (`OCR_MAX_PDF_PAGES` may lower it), bounded render dimensions/output, a bounded timeout that aborts active subprocesses, and bounded worker concurrency. Preserve the existing configurable 10 MB upload default.
+4. Upload handlers schedule background work and return without waiting for OCR. Startup and periodic scans recover stale leases and drain pending rows. Claim one row atomically under SQL Server read-committed locking so parallel workers do not process a submission twice.
+5. Persist normalized extraction results in `document_validations`; limit access to extracted text because it contains student information. Handle empty OCR, malformed/encrypted/over-limit PDFs, missing tools, timeout, and processing errors with fixed safe messages. Do not save partial PDF text as a completed result or expose raw command/database errors.
+6. Do not classify documents or infer authenticity. OCR output is untrusted input: escape it in views, do not execute it, and pass only the uploader-selected type to validation.
 
 ### Phase 9 acceptance checks
 
-- A valid configured PDF/image reaches the configured processor and its extracted text/result is associated with the correct immutable document submission.
-- Missing configuration, provider errors, timeouts, empty OCR, and malformed provider responses are contained, recorded safely, and do not leave a document indefinitely marked as processing.
+- Valid image/PDF fixtures reach Tesseract and their text/result is associated with the correct immutable submission; `npm run ocr:smoke` passes on Linux and Windows using installed binaries, English data, and configured paths.
+- PDF pages preserve input order; page, file, output, timeout, and concurrency limits are enforced; subprocesses are cancelled on timeout and temporary files are removed on success and failure.
+- Concurrent workers claim distinct pending rows; upload responses do not wait for OCR; startup and periodic recovery handle stale leases.
+- Missing binaries, malformed/encrypted/over-limit PDFs, timeouts, empty OCR, and tool errors are recorded safely and do not leave a document indefinitely marked as processing.
 - Extracted text and validation details are inaccessible to unauthorized roles and are rendered safely when shown to authorized staff.
-- No provider result or UI claims authenticity, forgery detection, signature/seal verification, forensic review, or automatic type classification.
+- No OCR result or UI claims authenticity, forgery detection, signature/seal verification, forensic review, or automatic type classification.
 
 ## Phase 10 — Validation Rules and Review
 
@@ -73,7 +76,7 @@ All permissions must be enforced on server routes and every file download. Stude
 ### Phase 10 acceptance checks
 
 - Unit-level checks cover configured required fields, complete/incomplete text, configured format rules, empty OCR, and uncertain OCR.
-- Each document type uses only its institution-approved rule set. No rules are silently inferred from sample documents or from the AI provider.
+- Each document type uses only its institution-approved rule set. No rules are silently inferred from sample documents or OCR output.
 - A document is `valid` only when the configured checks pass; uncertain results enter `needs_review`; processing/check failures enter `failed`; human rejection, if used, is recorded as a distinct review decision.
 - Registrar and database administrator can review authorized submissions, and the recorded reviewer and decision remain attached to the correct submission/version. Students see only their own permitted status and instructions. Finance cannot view or review documents.
 - A corrected re-upload starts a new validation run without changing the prior OCR result or reviewer history.
@@ -88,7 +91,7 @@ Build the student, registrar, finance, and database administrator dashboards fro
 
 Review authorization, input validation, upload hardening, session protections, audit coverage, and sensitive data exposure across the completed workflows. Address findings in the existing stack and document backup/restore procedures needed before deployment.
 
-**Acceptance gate:** server-side role and ownership checks cover protected reads and writes; upload and download paths remain private; important actions are auditable without storing secrets or raw document contents; production errors do not expose SQL, stack traces, or provider details; security checks pass.
+**Acceptance gate:** server-side role and ownership checks cover protected reads and writes; upload and download paths remain private; important actions are auditable without storing secrets or raw document contents; production errors do not expose SQL, stack traces, or native utility details; security checks pass.
 
 ## Phase 13 — Testing
 
@@ -110,7 +113,7 @@ Prepare production environment configuration, document and verify the database b
 
 ## Stop conditions
 
-- **Goal 1:** Run Phases 8–10 continuously and in order within one Goal Mode objective. After each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that completed phase with a plain human message, and continue to the next phase automatically. Stop after Phase 10 passes its gate and report Goal 1 complete. Do not start Phase 11 or any later phase in this goal.
+- **Goal 1:** Run Phases 8–10 in order within one Goal Mode objective. After each phase passes its acceptance gate, report a concise checkpoint and create one local commit for that completed phase. Phase 9's gate includes a successful real native OCR smoke on both Linux and Windows; the user has authorized its local commit only after both pass. Continue to Phase 10 only after approved required fields, format rules, review cases, and decision wording are supplied. If those rules are missing, keep Phase 10 paused and do not mark Goal 1 complete. Never push. Stop after Phase 10 passes its gate and report Goal 1 complete. Do not start Phase 11 or any later phase in this goal.
 - **Goal 2:** Start a separate Goal Mode objective only after Goal 1 has completed Phase 10 and stopped. Run Phases 11–15 continuously and in order. After each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that completed phase with a plain human message, and continue to the next phase automatically. Stop after Phase 15 passes its gate and report Goal 2 complete.
 - Never push. If a gate fails, resolve it within the current phase before proceeding. Pause when a required gate cannot be resolved without user input, institution-approved rules or credentials are missing, or an irreversible action requires approval. A paused or incomplete Goal 1 does not authorize starting Goal 2.
 - Do not commit a phase that is incomplete or blocked.
@@ -121,7 +124,7 @@ Prepare production environment configuration, document and verify the database b
 
 ### Goal 1 — Phases 8–10
 
-> Complete ARKTIESIIS roadmap Phases 8–10 in order: secure document management, Google Document AI integration, and institution-approved validation rules and review. Preserve the fixed project stack and all user changes. Enforce the documented role and document rules on the server. Complete each phase gate, report a concise checkpoint, and continue automatically to the next phase. After each completed phase passes its acceptance gate, create one local commit for that phase using a plain human message; do not commit incomplete or blocked phases, and never push. Pause when required user input, institution-approved rules or credentials, an irreversible-action approval, or an unresolved gate prevents safe completion. Do not invent institution policy. Stop after Phase 10 passes its gate; do not begin Phase 11.
+> Complete ARKTIESIIS roadmap Phases 8–10 in order: secure document management, local Tesseract/Poppler OCR, and institution-approved validation rules and review. Preserve the fixed project stack and all user changes. Enforce the documented role and document rules on the server. Complete each phase gate, report a concise checkpoint, and create one local commit for each completed phase. Phase 9's acceptance gate includes a successful real native OCR smoke on both Linux and Windows; the user authorized its commit only after both pass. Never push. Keep Phase 10 paused until institution-approved required fields, format/compliance rules, review cases, and decision wording are supplied. Do not invent institution policy. Stop after Phase 10 passes its gate; do not begin Phase 11.
 
 ### Goal 2 — Phases 11–15
 
@@ -134,20 +137,20 @@ Run Prompt 1 first. Start Prompt 2 only after Prompt 1's Goal 1 is complete and 
 ### Prompt 1 — Goal 1, Phases 8–10
 
 ```text
-Start Goal 1 using the Goal 1 objective in docs/08-phase-8-to-15-goal-plan.md. Work in this ARKTIESIIS repository and this same local checkout; do not create a fresh worktree. First read AGENTS.md, docs/07-paper-objectives-scope-limitations.md, and docs/08-phase-8-to-15-goal-plan.md. Phases 1–7 are complete; implement only Phases 8–10, in roadmap order, using the existing Node.js/Express/EJS/SQL Server/Google Document AI/email-2FA stack. After each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that completed phase with a plain human message, then continue to the next phase. Never push or commit an incomplete or blocked phase. Follow the exact role matrix and security gates in the plan. Preserve all existing user changes. For each phase, make reviewable changes, run relevant checks, review access/security, and update docs as needed. Pause if required institution-approved document rules, credentials, other user input, or approval for an irreversible action is missing, or if a gate is unresolved; do not invent school requirements. Never claim AI proves authenticity or detects forgery. After Phase 10 passes its acceptance gate, report Goal 1 complete and stop. Do not begin Phase 11 or Goal 2.
+Start Goal 1 using the Goal 1 objective in docs/08-phase-8-to-15-goal-plan.md. Work in this ARKTIESIIS repository and this same local checkout; do not create a fresh worktree. First read AGENTS.md, docs/07-paper-objectives-scope-limitations.md, and docs/08-phase-8-to-15-goal-plan.md. Phases 1–7 are complete; implement Phases 8–10 in roadmap order, using Node.js/Express/EJS/SQL Server/local Tesseract and Poppler/email-2FA. After each phase passes its acceptance gate, report a concise checkpoint and create one local commit for that phase. Phase 9's acceptance gate includes a successful real native OCR smoke on both Linux and Windows; the user authorized its local commit only after both pass. Never push. Follow the exact role matrix and security gates in the plan. Preserve all existing user changes. For each phase, make reviewable changes, run relevant checks, review access/security, and update docs as needed. Keep Phase 10 paused until institution-approved required fields, format/compliance rules, review cases, and decision wording are supplied; do not invent school requirements. Never claim OCR proves authenticity or detects forgery. After Phase 10 passes its acceptance gate, report Goal 1 complete and stop. Do not begin Phase 11 or Goal 2.
 ```
 
 ### Prompt 2 — Goal 2, Phases 11–15
 
 ```text
-Start Goal 2 using the Goal 2 objective in docs/08-phase-8-to-15-goal-plan.md. This is a separate Goal Mode run. Start only after Goal 1 completed Phases 8–10, passed the Phase 10 acceptance gate, and stopped. If Goal 1 is incomplete, blocked, or paused, stop and report that; do not overlap or prematurely begin Goal 2. Work in this ARKTIESIIS repository and the same local checkout used for Goal 1; do not create a fresh worktree. First read AGENTS.md, docs/07-paper-objectives-scope-limitations.md, and docs/08-phase-8-to-15-goal-plan.md. Implement only Phases 11–15, in roadmap order, using the existing Node.js/Express/EJS/SQL Server/Google Document AI/email-2FA stack. After each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that completed phase with a plain human message, then continue to the next phase. Never push or commit an incomplete or blocked phase. Follow the exact role matrix and security gates in the plan. Preserve all existing user changes. For each phase, make reviewable changes, run relevant checks, review access/security, and update docs as needed. Pause if required institution-approved rules, credentials, other user input, or approval for an irreversible action is missing, or if a gate is unresolved; do not invent school requirements. Never claim AI proves authenticity or detects forgery. After Phase 15 passes its acceptance gate, report Goal 2 complete and stop.
+Start Goal 2 using the Goal 2 objective in docs/08-phase-8-to-15-goal-plan.md. This is a separate Goal Mode run. Start only after Goal 1 completed Phases 8–10, passed the Phase 10 acceptance gate, and stopped. If Goal 1 is incomplete, blocked, or paused, stop and report that; do not overlap or prematurely begin Goal 2. Work in this ARKTIESIIS repository and the same local checkout used for Goal 1; do not create a fresh worktree. First read AGENTS.md, docs/07-paper-objectives-scope-limitations.md, and docs/08-phase-8-to-15-goal-plan.md. Implement only Phases 11–15, in roadmap order, using the existing Node.js/Express/EJS/SQL Server/local Tesseract and Poppler/email-2FA stack. After each phase passes its acceptance gate, report a concise checkpoint, create one local commit for that completed phase with a plain human message, then continue to the next phase. Never push or commit an incomplete or blocked phase. Follow the exact role matrix and security gates in the plan. Preserve all existing user changes. For each phase, make reviewable changes, run relevant checks, review access/security, and update docs as needed. Pause if required institution-approved rules, other user input, or approval for an irreversible action is missing, or if a gate is unresolved; do not invent school requirements. Never claim OCR proves authenticity or detects forgery. After Phase 15 passes its acceptance gate, report Goal 2 complete and stop.
 ```
 
 ## Out of scope
 
 - Training a new AI model, document-type classification, or automated claims that a document is genuine.
 - Forgery detection, signature/seal authentication, paper/material authenticity checks, or forensic analysis.
-- Changing the fixed Node.js/Express/EJS/SQL Server/Google Document AI/email-2FA stack.
+- Changing the fixed Node.js/Express/EJS/SQL Server/local Tesseract and Poppler/email-2FA stack.
 - Adding multi-school support, unapproved AI capabilities, or features beyond roadmap scope.
 
 ## Inputs required before production validation
@@ -155,4 +158,4 @@ Start Goal 2 using the Goal 2 objective in docs/08-phase-8-to-15-goal-plan.md. T
 - Institution-approved required fields and format/compliance rules for Form 137, report cards, Good Moral Certificates, and PSA birth certificates.
 - Confirmation of which validation cases require registrar review and what human outcomes/decision wording the system should record.
 - Confirmation of upload size and retention limits. The repository currently has a configurable 10 MB default; that value is not asserted as school policy.
-- Google Cloud project, location, processor, runtime credentials, and stable Internet access in the deployment environment.
+- Installed Tesseract with English trained data and installed Poppler command-line tools in the deployment environment.

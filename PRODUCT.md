@@ -25,11 +25,11 @@ The project materials do not establish a market position or competitor compariso
 
 ## Operating Context
 
-This is a thesis project. The current application implements authentication, database administration, student and academic records, and finance account management. Document management, Document AI workflows, and reporting remain for later phases; interfaces must distinguish planned work from working features.
+This is a thesis project. The current application implements authentication, database administration, student and academic records, finance account management, document management, and a background local OCR workflow. Real native-tool runtime acceptance is pending; institution-approved validation rules and reporting remain future work. Interfaces must distinguish working features from planned behavior.
 
 ## Capabilities and Constraints
 
-- The fixed stack is Node.js, Express, EJS, HTML, CSS, JavaScript, and Microsoft SQL Server, with Google Document AI for the planned document workflow.
+- The fixed stack is Node.js, Express, EJS, HTML, CSS, JavaScript, and Microsoft SQL Server, with local Tesseract OCR and Poppler PDF utilities for document text extraction.
 - Authentication uses bcrypt passwords, sessions, CSRF checks, role authorization, and email two-factor authentication outside the explicitly enabled development password bypass.
 - Students may access only their permitted documents. Form 137 is restricted to authorized staff. Finance access is limited to the role's required data.
 - Registrars may set a student number when creating a profile but cannot change it on an existing profile. Database administrators may correct existing student numbers.

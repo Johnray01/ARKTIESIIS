@@ -10,7 +10,7 @@ It is a web-based information management system with AI-assisted document valida
 - Express.js
 - EJS + HTML/CSS/JavaScript
 - Microsoft SQL Server
-- Google Document AI
+- Local Tesseract OCR with Poppler (`pdfinfo` and `pdftoppm`) for PDF rendering
 - Email-based two-factor authentication
 
 Do not replace the stack unless the user explicitly approves it.
@@ -24,7 +24,7 @@ Do not replace the stack unless the user explicitly approves it.
 Enforce authorization on the server. Hiding UI buttons is never enough.
 
 ## AI scope - very important
-The AI feature is limited to:
+The automated document feature is limited to:
 - OCR / text extraction
 - required-field checks
 - completeness validation
@@ -38,6 +38,8 @@ It MUST NOT claim to:
 - perform forensic document analysis
 
 Human review remains part of document acceptance when needed.
+
+OCR runs locally through installed native tools; no cloud document-processing service is used. Use direct `execFile` argument arrays without a shell, keep executable paths configurable, cap PDFs at 20 pages, and enforce the configured timeout and bounded worker concurrency.
 
 ## Document access rules
 - Students may only access their own permitted documents.

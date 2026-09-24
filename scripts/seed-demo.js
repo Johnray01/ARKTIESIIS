@@ -401,7 +401,7 @@ async function seedDemoData({
         studentAccounts: plan.students.length,
         subjects: plan.subjects.length,
         documents: 0,
-        documentAiRows: 0
+        validationRows: 0
       }))
       .query(`INSERT INTO dbo.audit_logs (user_id, action, entity_type, entity_id, details_json)
         VALUES (NULL, @action, @entityType, @entityId, @detailsJson)`);

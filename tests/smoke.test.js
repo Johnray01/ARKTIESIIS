@@ -303,11 +303,15 @@ test('environment rejects invalid ports and a missing production session secret'
 
   assert.notEqual(loadEnvironment({ PORT: 'not-a-port' }).status, 0);
   assert.notEqual(loadEnvironment({ DB_PORT: '65536' }).status, 0);
-  assert.notEqual(loadEnvironment({ DOCUMENT_AI_TIMEOUT_MS: '999' }).status, 0);
-  assert.notEqual(loadEnvironment({ DOCUMENT_AI_TIMEOUT_MS: '120001' }).status, 0);
-  assert.notEqual(loadEnvironment({ DOCUMENT_AI_TIMEOUT_MS: '1.5' }).status, 0);
-  assert.equal(loadEnvironment({ DOCUMENT_AI_TIMEOUT_MS: '1000' }).status, 0);
-  assert.equal(loadEnvironment({ DOCUMENT_AI_TIMEOUT_MS: '120000' }).status, 0);
+  assert.notEqual(loadEnvironment({ OCR_TIMEOUT_MS: '999' }).status, 0);
+  assert.notEqual(loadEnvironment({ OCR_TIMEOUT_MS: '120001' }).status, 0);
+  assert.notEqual(loadEnvironment({ OCR_TIMEOUT_MS: '1.5' }).status, 0);
+  assert.equal(loadEnvironment({ OCR_TIMEOUT_MS: '1000' }).status, 0);
+  assert.equal(loadEnvironment({ OCR_TIMEOUT_MS: '120000' }).status, 0);
+  assert.notEqual(loadEnvironment({ OCR_CONCURRENCY: '5' }).status, 0);
+  assert.notEqual(loadEnvironment({ OCR_MAX_PDF_PAGES: '21' }).status, 0);
+  assert.equal(loadEnvironment({ OCR_MAX_PDF_PAGES: '20' }).status, 0);
+  assert.notEqual(loadEnvironment({ OCR_LANGUAGE: '-invalid' }).status, 0);
   assert.notEqual(loadEnvironment({ NODE_ENV: 'production', SESSION_SECRET: '' }).status, 0);
   assert.equal(loadEnvironment({ NODE_ENV: 'production', SESSION_SECRET: 'a'.repeat(32) }).status, 0);
 });

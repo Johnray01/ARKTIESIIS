@@ -13,7 +13,7 @@
 - Subjects and grades.
 - Finance records.
 - Document upload.
-- Google Document AI integration.
+- Local Tesseract OCR and Poppler PDF integration.
 - Validation rules and result states.
 
 ## Week 3

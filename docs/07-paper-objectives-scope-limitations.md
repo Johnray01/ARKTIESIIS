@@ -59,11 +59,11 @@ Develop a web-based information management system with an AI-assisted document v
 
 ## Limitations
 
-- The project uses an existing AI/document-processing service. It does not train or introduce a new AI model.
+- The project uses existing local OCR/document-processing software. It does not train or introduce a new AI model.
 - Validation is limited to OCR/text extraction, required information, completeness, and configured format/compliance checks.
 - The uploader selects the document type. Automatic document classification is outside scope.
 - The system does not claim to prove document authenticity, detect forged documents, authenticate signatures or seals, examine paper/material authenticity, or perform forensic document analysis. Human intervention is required for authenticity judgments.
-- The system depends on a stable Internet connection and the availability of its server and cloud document-processing service.
+- The system depends on server availability and installed local OCR/PDF utilities; the document OCR workflow does not require a cloud document-processing service.
 - The implementation is limited to the Lucena Branch of Ark Technological Institute Education System Incorporated.
 
 ## Implementation clarifications kept separate from the paper
@@ -74,3 +74,4 @@ These decisions guide application behavior and must not be described as addition
 - The paper's confirmed-deletion language applies to database-administrator deletion of student records. In the application, the user's chosen behavior is to archive/deactivate the student record while retaining linked academic and finance history. Separately, a registrar may deactivate a linked student login without archiving the student record.
 - A registrar cannot edit an existing student number. A database administrator may correct it.
 - The application's current 0–100 grade range is provisional, not a grading policy stated in the paper. The school must confirm its grading scale before the range is represented as official policy.
+- The implementation uses local Tesseract OCR and Poppler PDF utilities for text extraction. These tools do not classify document types or make authenticity judgments.

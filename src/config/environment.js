@@ -34,17 +34,42 @@ function parseUploadMegabytes(value) {
   return megabytes;
 }
 
-function parseDocumentAITimeout(value) {
-  const rawValue = value === undefined || value === '' ? '30000' : String(value);
+function parseOcrTimeout(value) {
+  const rawValue = value === undefined || value === '' ? '60000' : String(value);
   if (!/^\d+$/.test(rawValue)) {
-    throw new Error('DOCUMENT_AI_TIMEOUT_MS must be an integer between 1000 and 120000.');
+    throw new Error('OCR_TIMEOUT_MS must be an integer between 1000 and 120000.');
   }
 
   const timeoutMs = Number(rawValue);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) {
-    throw new Error('DOCUMENT_AI_TIMEOUT_MS must be an integer between 1000 and 120000.');
+    throw new Error('OCR_TIMEOUT_MS must be an integer between 1000 and 120000.');
   }
   return timeoutMs;
+}
+
+function configuredExecutable(name, fallback) {
+  const value = process.env[name];
+  const executable = value === undefined || value.trim() === '' ? fallback : value;
+  if (executable.includes('\u0000')) throw new Error(`${name} contains an invalid character.`);
+  return executable;
+}
+
+function configuredOcrLanguage(value) {
+  const language = value === undefined || value.trim() === '' ? 'eng' : value;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_+-]{0,63}$/.test(language)) throw new Error('OCR_LANGUAGE is invalid.');
+  return language;
+}
+
+function parseOcrConcurrency(value) {
+  const rawValue = value === undefined || value === '' ? '2' : String(value);
+  if (!/^[1-4]$/.test(rawValue)) throw new Error('OCR_CONCURRENCY must be an integer between 1 and 4.');
+  return Number(rawValue);
+}
+
+function parseOcrMaxPdfPages(value) {
+  const rawValue = value === undefined || value === '' ? '20' : String(value);
+  if (!/^(?:[1-9]|1\d|20)$/.test(rawValue)) throw new Error('OCR_MAX_PDF_PAGES must be an integer between 1 and 20.');
+  return Number(rawValue);
 }
 
 const configuredSessionSecret = process.env.SESSION_SECRET;
@@ -77,11 +102,14 @@ module.exports = {
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM || 'ARKTIESIIS <no-reply@example.com>'
   },
-  documentAI: {
-    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-    location: process.env.GOOGLE_CLOUD_LOCATION || 'us',
-    processorId: process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID,
-    timeoutMs: parseDocumentAITimeout(process.env.DOCUMENT_AI_TIMEOUT_MS)
+  ocr: {
+    tesseractPath: configuredExecutable('TESSERACT_PATH', 'tesseract'),
+    pdfinfoPath: configuredExecutable('PDFINFO_PATH', 'pdfinfo'),
+    pdftoppmPath: configuredExecutable('PDFTOPPM_PATH', 'pdftoppm'),
+    language: configuredOcrLanguage(process.env.OCR_LANGUAGE),
+    timeoutMs: parseOcrTimeout(process.env.OCR_TIMEOUT_MS),
+    concurrency: parseOcrConcurrency(process.env.OCR_CONCURRENCY),
+    maxPdfPages: parseOcrMaxPdfPages(process.env.OCR_MAX_PDF_PAGES)
   },
   upload: {
     maxMb: parseUploadMegabytes(process.env.MAX_UPLOAD_MB),

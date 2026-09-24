@@ -242,7 +242,7 @@ test('OCR details are fetched only for registrar and database administrator docu
             if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
             if (statement.includes('FROM dbo.document_validations')) return { recordset: staffIsActive ? [{
               id: 4,
-              processor: 'Google Document AI',
+              processor: 'Tesseract OCR',
               extracted_text: '<script>unsafe OCR text</script>',
               validation_json: JSON.stringify({ outcome: 'extracted', message: 'ignored untrusted message' }),
               result_status: 'needs_review',
@@ -456,7 +456,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
         history: [{ id: Number(documentId), original_filename: 'moral.pdf', status: 'needs_review', supersedes_document_id: null, created_at: new Date() }],
         reviewEvents: [{ id: 1, action_type: 'correction_requested', instruction: 'Upload a clearer file <script>alert(1)</script>', created_at: new Date(), reviewer_name: 'Registrar' }],
         validation: actorId === 1 ? null : {
-          processor: 'Google Document AI',
+          processor: 'Tesseract OCR',
           extracted_text: '<img src=x onerror=alert(1)>',
           result_status: 'needs_review',
           created_at: new Date(),
@@ -471,7 +471,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     environment: { nodeEnv: 'development', devPasswordOnlyLogin: true, sessionSecret: 'phase-eight-document-http-test-secret' },
     documentService,
     documentProcessingService: {
-      async processPendingDocument(documentId) { processingCalls.push(documentId); }
+      schedulePendingProcessing() { processingCalls.push('scheduled'); }
     }
   });
 
@@ -502,7 +502,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.equal(acceptedWrite.status, 303);
     assert.equal(acceptedWrite.headers.get('location'), '/documents/15?notice=uploaded');
     assert.equal(calls.some(([action, actorId, type, filename]) => action === 'upload' && actorId === 1 && type === 'report_card' && filename === 'report.pdf'), true);
-    assert.deepEqual(processingCalls, [15], 'student initial upload starts its own OCR run');
+    assert.deepEqual(processingCalls, ['scheduled'], 'student upload schedules background OCR');
 
     const studentDetail = await fetch(`${baseUrl}/documents/15`, { headers: { cookie: studentCookie } });
     const studentDetailHtml = await studentDetail.text();
@@ -519,7 +519,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     });
     assert.equal(correctedStudentWrite.status, 303);
     assert.equal(correctedStudentWrite.headers.get('location'), '/documents/17?notice=uploaded');
-    assert.equal(processingCalls.at(-1), 17, 'student correction starts a distinct OCR run');
+    assert.equal(processingCalls.at(-1), 'scheduled', 'student correction schedules background OCR');
 
     const financeCookie = await login(baseUrl, 'finance@example.edu');
     const beforeDeniedList = calls.filter(([action]) => action === 'list').length;
@@ -541,7 +541,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     });
     assert.equal(acceptedStaffWrite.status, 303);
     assert.equal(acceptedStaffWrite.headers.get('location'), '/documents/students/44?notice=uploaded');
-    assert.equal(processingCalls.at(-1), 18, 'staff initial upload starts its own OCR run');
+    assert.equal(processingCalls.at(-1), 'scheduled', 'staff upload schedules background OCR');
 
     const restrictedStaffDetail = await fetch(`${baseUrl}/documents/16`, { headers: { cookie: registrarCookie } });
     const restrictedStaffDetailHtml = await restrictedStaffDetail.text();
@@ -557,7 +557,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     });
     assert.equal(correctedStaffWrite.status, 303);
     assert.equal(correctedStaffWrite.headers.get('location'), '/documents/19?notice=uploaded');
-    assert.equal(processingCalls.at(-1), 19, 'staff linked correction starts its own OCR run');
+    assert.equal(processingCalls.at(-1), 'scheduled', 'staff correction schedules background OCR');
     assert.equal(calls.some(([action, actorId, studentId]) => action === 'student' && actorId === 2 && studentId === 44), true);
 
     const staffDetail = await fetch(`${baseUrl}/documents/15`, { headers: { cookie: registrarCookie } });
