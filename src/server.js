@@ -1,7 +1,12 @@
 const { createApp } = require('./app');
 const env = require('./config/environment');
 const { getPool } = require('./config/database');
+const { isDevelopmentPasswordLoginEnabled } = require('./middleware/auth');
 const { createDocumentProcessingService, startProcessingRecoveryScheduler } = require('./services/documentProcessingService');
+
+function getListenHost(environment = env) {
+  return isDevelopmentPasswordLoginEnabled(environment) ? '127.0.0.1' : undefined;
+}
 
 async function start() {
   try {
@@ -17,9 +22,13 @@ async function start() {
   const processingRecovery = startProcessingRecoveryScheduler(processingService);
   await processingRecovery.run();
 
-  const server = app.listen(env.port, () => {
-    console.log(`ARKTIESIIS running at http://localhost:${env.port}`);
-  });
+  const host = getListenHost(env);
+  const onListening = () => {
+    console.log(`ARKTIESIIS running at http://${host || 'localhost'}:${env.port}`);
+  };
+  const server = host
+    ? app.listen(env.port, host, onListening)
+    : app.listen(env.port, onListening);
   server.once('close', processingRecovery.stop);
   return server;
 }
@@ -28,4 +37,4 @@ if (require.main === module) {
   start();
 }
 
-module.exports = { start };
+module.exports = { start, getListenHost };

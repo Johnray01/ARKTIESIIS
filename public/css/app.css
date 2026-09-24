@@ -108,8 +108,8 @@ a:hover {
 
 .brand__seal {
   display: block;
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 4.5rem;
+  height: 4.5rem;
   object-fit: contain;
   flex: 0 0 auto;
 }
@@ -122,9 +122,9 @@ a:hover {
 }
 
 .brand__name {
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: 0.045em;
+  letter-spacing: 0.055em;
 }
 
 .brand__institution {
@@ -176,9 +176,9 @@ a:hover {
 }
 
 .primary-nav__link[aria-current="page"] {
-  border-color: #ead1d4;
-  background: var(--accent-wash);
-  color: var(--accent-hover);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .site-header__signout {
@@ -275,10 +275,18 @@ p {
   gap: clamp(2.5rem, 6vw, 5rem);
 }
 
+.home-intro,
+.auth-intro,
+.dashboard-heading {
+  padding-inline-start: clamp(1rem, 2.2vw, 1.6rem);
+  border-inline-start: 1px solid var(--line-strong);
+}
+
 .home-intro h1 {
-  max-width: 12ch;
-  font-size: 3.2rem;
-  line-height: 1.08;
+  max-width: 11ch;
+  font-size: clamp(3.6rem, 5.2vw, 4.8rem);
+  line-height: 1.01;
+  text-wrap: balance;
 }
 
 .home-intro p {
@@ -287,13 +295,26 @@ p {
 }
 
 .home-access {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 1rem;
+  row-gap: 0.2rem;
   margin-top: 2.2rem;
   padding-top: 1.25rem;
-  border-top: 1px solid var(--line-strong);
+  border-top: 2px solid var(--line-strong);
 }
 
+.home-access h2,
 .home-access p {
-  margin-bottom: 1.25rem;
+  grid-column: 1;
+  margin-bottom: 0;
+}
+
+.home-access .button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  white-space: nowrap;
 }
 
 .home-visual {
@@ -313,6 +334,24 @@ p {
   object-position: center;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .home-visual img.campus-image--revealing {
+    animation: campus-image-reveal 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes campus-image-reveal {
+    from {
+      clip-path: inset(0 0 100% 0 round var(--radius));
+      transform: translateY(-0.75rem);
+    }
+
+    to {
+      clip-path: inset(0 0 0 0 round var(--radius));
+      transform: translateY(0);
+    }
+  }
+}
+
 .home-visual figcaption {
   margin-top: 0.7rem;
   color: var(--muted);
@@ -327,7 +366,10 @@ p {
 }
 
 .auth-intro h1 {
-  font-size: 2.8rem;
+  max-width: 12ch;
+  font-size: clamp(3rem, 4.8vw, 4rem);
+  line-height: 1.04;
+  text-wrap: balance;
 }
 
 .auth-intro > p {
@@ -343,14 +385,16 @@ p {
 }
 
 .auth-form-section {
-  padding: clamp(1.5rem, 4vw, 2.25rem);
-  border: 1px solid var(--line);
+  padding: clamp(1.75rem, 4.2vw, 2.75rem);
+  border: 1px solid var(--line-strong);
+  border-top: 4px solid var(--accent);
   border-radius: var(--radius);
   background: var(--surface);
 }
 
 .auth-form-section h2 {
   margin-bottom: 1.4rem;
+  font-size: 1.4rem;
 }
 
 .form-stack {
@@ -521,7 +565,9 @@ p {
 
 .dashboard-heading h1 {
   margin-bottom: 0.45rem;
-  font-size: 2.25rem;
+  font-size: clamp(2.35rem, 4vw, 3.2rem);
+  line-height: 1.04;
+  text-wrap: balance;
 }
 
 .dashboard-heading p {
@@ -1099,11 +1145,25 @@ p {
 
   .home-intro h1,
   .auth-intro h1 {
-    font-size: 2.35rem;
+    font-size: 2.7rem;
   }
 
   .home-access {
+    grid-template-columns: 1fr;
     margin-top: 1.8rem;
+  }
+
+  .home-access .button {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    margin-top: 0.7rem;
+  }
+
+  .home-intro,
+  .auth-intro,
+  .dashboard-heading {
+    padding-inline-start: 1rem;
   }
 
   .home-visual img {
@@ -1214,7 +1274,7 @@ p {
   h1,
   .home-intro h1,
   .auth-intro h1 {
-    font-size: 2rem;
+    font-size: 2.25rem;
   }
 }
 

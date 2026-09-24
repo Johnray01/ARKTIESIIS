@@ -4,6 +4,7 @@ const { PassThrough, Writable } = require('node:stream');
 const { readHidden } = require('../scripts/bootstrap-admin');
 const { verifyPassword } = require('../src/routes');
 const { isDevelopmentPasswordLoginEnabled, createAuthFingerprint, hasMatchingAuthFingerprint } = require('../src/middleware/auth');
+const { getListenHost } = require('../src/server');
 const twoFactor = require('../src/services/twoFactorService');
 
 test('password-only authentication requires both development gate settings', () => {
@@ -11,6 +12,13 @@ test('password-only authentication requires both development gate settings', () 
   assert.equal(isDevelopmentPasswordLoginEnabled({ nodeEnv: 'development', devPasswordOnlyLogin: false }), false);
   assert.equal(isDevelopmentPasswordLoginEnabled({ nodeEnv: 'production', devPasswordOnlyLogin: true }), false);
   assert.equal(isDevelopmentPasswordLoginEnabled({ nodeEnv: 'test', devPasswordOnlyLogin: true }), false);
+});
+
+test('server binds password-only development mode to loopback only', () => {
+  assert.equal(getListenHost({ nodeEnv: 'development', devPasswordOnlyLogin: true }), '127.0.0.1');
+  assert.equal(getListenHost({ nodeEnv: 'development', devPasswordOnlyLogin: false }), undefined);
+  assert.equal(getListenHost({ nodeEnv: 'production', devPasswordOnlyLogin: true }), undefined);
+  assert.equal(getListenHost({ nodeEnv: 'test', devPasswordOnlyLogin: true }), undefined);
 });
 
 test('auth fingerprints change with role, password hash, or account update timestamp', () => {

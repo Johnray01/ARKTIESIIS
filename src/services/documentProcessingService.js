@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const { getPool: defaultGetPool, sql: defaultSql } = require('../config/database');
 const defaultEnvironment = require('../config/environment');
 const { createLocalOcrService } = require('./localOcrService');
+const { advisoryChecks } = require('./documentValidationService');
 
 const MIME_BY_EXTENSION = new Map([
   ['.pdf', 'application/pdf'],
@@ -123,9 +124,20 @@ function createDocumentProcessingService({
           SET status = 'processing', processing_started_at = SYSUTCDATETIME()
           OUTPUT INSERTED.id AS id, INSERTED.stored_filename AS stored_filename,
             INSERTED.mime_type AS mime_type, INSERTED.document_type AS document_type
-          WHERE id = @documentId AND status = 'pending'`);
-      return result.recordset?.[0] || null;
+          WHERE id = @documentId AND status = 'pending' AND document_type <> 'form_137'`);
+      const document = result.recordset?.[0];
+      if (!document) return null;
+      return loadStudentName(transaction, document);
     });
+  }
+
+  async function loadStudentName(transaction, document) {
+    const result = await transaction.request()
+      .input('documentId', sql.Int, document.id)
+      .query(`SELECT s.first_name, s.last_name
+        FROM dbo.documents AS d INNER JOIN dbo.students AS s ON s.id = d.student_id
+        WHERE d.id = @documentId`);
+    return { ...document, student: result.recordset?.[0] || {} };
   }
 
   async function claimNextPendingDocument() {
@@ -134,7 +146,7 @@ function createDocumentProcessingService({
         .query(`;WITH next_pending AS (
             SELECT TOP (1) id
             FROM dbo.documents WITH (UPDLOCK, READPAST, READCOMMITTEDLOCK)
-            WHERE status = 'pending'
+            WHERE status = 'pending' AND document_type <> 'form_137'
             ORDER BY created_at, id
           )
           UPDATE d
@@ -143,7 +155,9 @@ function createDocumentProcessingService({
             INSERTED.mime_type AS mime_type, INSERTED.document_type AS document_type
           FROM dbo.documents AS d
           INNER JOIN next_pending AS pending ON pending.id = d.id`);
-      return result.recordset?.[0] || null;
+      const document = result.recordset?.[0];
+      if (!document) return null;
+      return loadStudentName(transaction, document);
     }, sql.ISOLATION_LEVEL.READ_COMMITTED);
   }
 
@@ -200,7 +214,8 @@ function createDocumentProcessingService({
       resultStatus: 'needs_review',
       extractedText: normalized.extractedText,
       code: 'extracted',
-      message: 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'
+      message: 'OCR text was extracted. Advisory checks are available; registrar or database administrator source inspection is required.',
+      advisoryChecks: advisoryChecks(document.document_type, normalized.extractedText, document.student)
     };
   }
 
@@ -243,7 +258,8 @@ function createDocumentProcessingService({
       const validationJson = JSON.stringify({
         stage: 'ocr',
         outcome: outcome.code,
-        message: outcome.message
+        message: outcome.message,
+        advisoryChecks: outcome.advisoryChecks || []
       });
       await transaction.request()
         .input('documentId', sql.Int, documentId)
@@ -274,7 +290,7 @@ function createDocumentProcessingService({
           ;WITH stale_documents AS (
             SELECT TOP (@batchSize) id
             FROM dbo.documents WITH (UPDLOCK, HOLDLOCK, ROWLOCK)
-            WHERE status = 'processing'
+            WHERE status = 'processing' AND document_type <> 'form_137'
               AND (processing_started_at IS NULL
                 OR processing_started_at < DATEADD(MILLISECOND, -@staleAfterMs, SYSUTCDATETIME()))
             ORDER BY CASE WHEN processing_started_at IS NULL THEN 0 ELSE 1 END,

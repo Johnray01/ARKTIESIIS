@@ -16,7 +16,7 @@ function fakeSql() {
   };
 }
 
-function documentHarness({ status = 'pending', storedFilename, mimeType } = {}) {
+function documentHarness({ status = 'pending', storedFilename, mimeType, documentType = 'report_card' } = {}) {
   const state = {
     document: {
       id: 84,
@@ -24,12 +24,13 @@ function documentHarness({ status = 'pending', storedFilename, mimeType } = {}) 
       processing_started_at: status === 'processing' ? null : null,
       stored_filename: storedFilename || '5dd677e1-87fb-4214-a7c1-27aca233ae1f.pdf',
       mime_type: mimeType || 'application/pdf',
-      document_type: 'report_card'
+      document_type: documentType
     },
     queries: [],
     validations: [],
     commits: 0,
     rollbacks: 0,
+    decisionEvents: [],
     failNextValidationInsert: false,
     staleProcessing: status === 'processing'
   };
@@ -38,6 +39,7 @@ function documentHarness({ status = 'pending', storedFilename, mimeType } = {}) 
     const transaction = {
       localDocument: { ...state.document },
       localValidations: [],
+      localDecisions: [],
       async begin() {},
       request() {
         const values = {};
@@ -45,8 +47,23 @@ function documentHarness({ status = 'pending', storedFilename, mimeType } = {}) 
           input(name, _type, value) { values[name] = value; return this; },
           async query(statement) {
             state.queries.push({ statement, values: { ...values } });
+            if (statement.includes('OUTER APPLY')) {
+              const latestValidation = [...state.validations, ...transaction.localValidations].at(-1)?.values;
+              return { recordset: [{
+                id: transaction.localDocument.id,
+                student_id: 44,
+                document_type: transaction.localDocument.document_type,
+                status: transaction.localDocument.status,
+                result_status: latestValidation?.resultStatus || null,
+                validation_json: latestValidation?.validationJson || null
+              }] };
+            }
+            if (statement.includes('FROM dbo.document_decision_events')) {
+              const latestDecision = state.decisionEvents.at(-1);
+              return { recordset: latestDecision ? [{ decision_type: latestDecision.decisionType }] : [] };
+            }
             if (statement.includes("SET status = 'processing'")) {
-              if (transaction.localDocument.status !== 'pending') return { recordset: [] };
+              if (transaction.localDocument.status !== 'pending' || transaction.localDocument.document_type === 'form_137') return { recordset: [] };
               transaction.localDocument.status = 'processing';
               transaction.localDocument.processing_started_at = 'started';
               return { recordset: [{ ...transaction.localDocument }] };
@@ -74,7 +91,17 @@ function documentHarness({ status = 'pending', storedFilename, mimeType } = {}) 
               transaction.localValidations.push({ statement, values: { ...values } });
               return { recordset: [] };
             }
+            if (statement.includes('INSERT INTO dbo.document_decision_events')) {
+              transaction.localDecisions.push({ ...values });
+              return { recordset: [] };
+            }
+            if (statement.includes('UPDATE dbo.documents SET status = @nextStatus')) {
+              if (transaction.localDocument.status !== values.currentStatus || !['needs_review', 'failed'].includes(transaction.localDocument.status)) return { recordset: [] };
+              transaction.localDocument.status = values.nextStatus;
+              return { recordset: [{ id: transaction.localDocument.id }] };
+            }
             if (statement.includes('FROM dbo.users WITH')) return { recordset: [{ id: 7, role: 'registrar' }] };
+            if (statement.includes('SELECT s.first_name, s.last_name')) return { recordset: [{ first_name: 'Test', last_name: 'Student' }] };
             if (statement.includes('FROM dbo.documents WITH')) return { recordset: [{ id: 84, student_id: 44, document_type: 'report_card' }] };
             if (statement.includes('INSERT INTO dbo.document_review_events')) return { recordset: [] };
             if (statement.includes("SET status = CASE WHEN status = 'processing'")) {
@@ -89,6 +116,7 @@ function documentHarness({ status = 'pending', storedFilename, mimeType } = {}) 
       async commit() {
         state.document = { ...transaction.localDocument };
         state.validations.push(...transaction.localValidations);
+        state.decisionEvents.push(...transaction.localDecisions);
         state.commits += 1;
       },
       async rollback() { state.rollbacks += 1; }
@@ -256,7 +284,7 @@ test('OCR processing does not report success when another state transition wins 
     const service = makeService(harness, storageDirectory, {
       localOcr: {
         async processDocument() {
-          harness.state.document.status = 'failed';
+          harness.state.document.status = 'valid';
           harness.state.document.processing_started_at = null;
           return { text: 'OCR text' };
         }
@@ -264,8 +292,69 @@ test('OCR processing does not report success when another state transition wins 
     });
 
     await assert.rejects(service.processPendingDocument(84), /submission state changed/);
-    assert.equal(harness.state.document.status, 'failed');
+    assert.equal(harness.state.document.status, 'valid', 'a completed manual verification remains final');
     assert.equal(harness.state.validations.length, 0, 'the OCR result was not recorded for the competing terminal state');
+  } finally {
+    await fs.rm(storageDirectory, { recursive: true, force: true });
+  }
+});
+
+test('a manual decision cannot overlap an OCR lease and stays final after the worker completes', async () => {
+  const storageDirectory = await temporaryStorage();
+  const storedFilename = '5dd677e1-87fb-4214-a7c1-27aca233ae1f.pdf';
+  try {
+    const harness = documentHarness();
+    await fs.writeFile(path.join(storageDirectory, storedFilename), Buffer.from('private-upload'));
+    let resolveOcr;
+    let signalOcrStarted;
+    const ocrStarted = new Promise((resolve) => { signalOcrStarted = resolve; });
+    const processing = makeService(harness, storageDirectory, {
+      localOcr: {
+        processDocument() {
+          signalOcrStarted();
+          return new Promise((resolve) => { resolveOcr = resolve; });
+        }
+      }
+    });
+    const review = createDocumentService({
+      getPool: async () => ({}),
+      sql: fakeSql(),
+      transactionFactory: harness.transactionFactory,
+      storageDirectory
+    });
+
+    const job = processing.processPendingDocument(84);
+    await ocrStarted;
+    assert.equal(harness.state.document.status, 'processing');
+    await assert.rejects(review.decideDocument(7, '84', 'verified'), /finish OCR/);
+    assert.equal(harness.state.decisionEvents.length, 0);
+
+    resolveOcr({ text: 'Test Student\nExample School\nMathematics 90' });
+    await job;
+    assert.equal(harness.state.document.status, 'needs_review');
+    assert.equal(harness.state.validations.length, 1);
+    await review.decideDocument(7, '84', 'verified', 'Source document inspected by registrar.');
+    assert.equal(harness.state.document.status, 'valid');
+    assert.equal(harness.state.decisionEvents.length, 1);
+    assert.equal((await processing.processPendingDocument(84)).status, 'not_pending');
+    assert.equal(harness.state.document.status, 'valid', 'a later worker scan cannot replace the manual decision');
+  } finally {
+    await fs.rm(storageDirectory, { recursive: true, force: true });
+  }
+});
+
+test('Form 137 submissions are excluded from direct OCR processing', async () => {
+  const storageDirectory = await temporaryStorage();
+  try {
+    const harness = documentHarness({ documentType: 'form_137' });
+    let calls = 0;
+    const service = makeService(harness, storageDirectory, {
+      localOcr: { async processDocument() { calls += 1; return { text: 'must not process' }; } }
+    });
+    assert.deepEqual(await service.processPendingDocument(84), { documentId: 84, status: 'not_pending' });
+    assert.equal(calls, 0);
+    assert.equal(harness.state.document.status, 'pending');
+    assert.ok(harness.state.queries.some(({ statement }) => statement.includes("document_type <> 'form_137'")));
   } finally {
     await fs.rm(storageDirectory, { recursive: true, force: true });
   }
@@ -327,6 +416,23 @@ test('migration 005 changes only the default processor label and preserves exist
   assert.doesNotMatch(batches[0], /UPDATE\s+dbo\.document_validations/i);
 });
 
+test('migration 006 is numbered forward-only and records decisions/status history without rewriting old results', async () => {
+  const migration = readMigrationFiles().find(({ version }) => version === '006');
+  assert.ok(migration);
+  assert.equal(migration.fileName, '006_document_decisions_and_form137_status.sql');
+  const batches = splitSqlBatches(await fs.readFile(migration.filePath, 'utf8'));
+  assert.equal(batches.length, 1);
+  assert.match(batches[0], /CREATE TABLE dbo\.document_decision_events/);
+  assert.match(batches[0], /CREATE TABLE dbo\.form137_status_events/);
+  assert.match(batches[0], /decision_type IN \('verified', 'correction_requested', 'rejected'\)/);
+  assert.match(batches[0], /status IN \('pending', 'received', 'verified', 'correction', 'rejected'\)/);
+  assert.doesNotMatch(batches[0], /UPDATE\s+dbo\.(?:documents|document_validations)/i);
+  assert.doesNotMatch(batches[0], /DROP\s+(?:TABLE|COLUMN|CONSTRAINT)/i);
+  const rollbackScript = await fs.readFile(path.resolve(__dirname, '../scripts/migration-rollback.js'), 'utf8');
+  assert.match(rollbackScript, /await transaction\.rollback\(\)/);
+  assert.match(rollbackScript, /OBJECT_ID\(N'dbo\.document_decision_events'/);
+});
+
 test('parallel queue workers claim distinct submissions at bounded per-service concurrency', async () => {
   const storageDirectory = await temporaryStorage();
   const documents = [84, 85, 86].map((id) => ({
@@ -351,6 +457,7 @@ test('parallel queue workers claim distinct submissions at bounded per-service c
             state.claimed.push(document.id);
             return { recordset: [{ ...document }] };
           }
+          if (statement.includes('SELECT s.first_name, s.last_name')) return { recordset: [{ first_name: 'Test', last_name: 'Student' }] };
           if (statement.includes('SET status = @documentStatus')) {
             const document = state.documents.find((row) => row.id === values.documentId);
             if (document?.status !== 'processing') return { recordset: [] };
@@ -468,7 +575,8 @@ test('review requests during OCR preserve the processing lease until the OCR res
     assert.equal(harness.state.document.processing_started_at, null);
     assert.equal(harness.state.validations.length, 1);
     assert.equal(harness.state.validations[0].values.resultStatus, 'needs_review');
-    assert.equal(harness.state.queries.some(({ statement }) => statement.includes("SET status = CASE WHEN status = 'processing' THEN status ELSE 'needs_review' END")), true);
+    assert.equal(harness.state.queries.some(({ statement }) => statement.includes('INSERT INTO dbo.document_review_events')), true);
+    assert.equal(harness.state.queries.some(({ statement }) => statement.includes("SET status = CASE WHEN status = 'processing'")), false);
   } finally {
     await fs.rm(storageDirectory, { recursive: true, force: true });
   }

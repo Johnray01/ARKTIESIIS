@@ -66,11 +66,13 @@ Develop a web-based information management system with an AI-assisted document v
 - The system depends on server availability and installed local OCR/PDF utilities; the document OCR workflow does not require a cloud document-processing service.
 - The implementation is limited to the Lucena Branch of Ark Technological Institute Education System Incorporated.
 
-## Implementation clarifications kept separate from the paper
+## Implementation clarifications kept separate from the paper and school policy
 
-These decisions guide application behavior and must not be described as additional school policy:
+These capstone leader decisions guide application behavior. They preserve the paper's wording above and must not be described as institutional policy:
 
-- Although specific objective 2 broadly lists all four document types for students and staff, the detailed role rules govern implementation: students may upload only Good Moral Certificates and report cards; Form 137 and PSA birth certificates are restricted to the registrar and database administrator.
+- Although specific objective 2 broadly lists all four document types for students and staff, the implementation decision is that students may upload only Good Moral Certificates and report cards. Registrar/database administrator users may upload those types and PSA birth certificates. A student may view/download only a PSA birth certificate uploaded by staff for that student's own record.
+- Form 137 is tracked as a physical document status for registrar/database administrator users: pending, received, verified, correction, or rejected, with a student-visible instruction when applicable. The workflow accepts no new Form 137 file and performs no Form 137 OCR or text extraction. Historical Form 137 files remain staff-only.
+- Digital OCR checks are advisory and limited to OCR-readable clues: linked student-name text, possible school-name lines, and apparent grade-entry lines for report cards; linked student-name text and possible school-name lines for Good Moral Certificates; and linked student-name text for PSA certificates. There is no school-name whitelist, grade threshold, completeness/format rule, or automatic acceptance. A registrar/database administrator inspects the source file and manually verifies, requests correction, or rejects each digital submission. A reason is required to verify after OCR failure or a missed advisory check. School approval remains required before policy-dependent Phase 10 acceptance checks can be completed.
 - The paper's confirmed-deletion language applies to database-administrator deletion of student records. In the application, the user's chosen behavior is to archive/deactivate the student record while retaining linked academic and finance history. Separately, a registrar may deactivate a linked student login without archiving the student record.
 - A registrar cannot edit an existing student number. A database administrator may correct it.
 - The application's current 0–100 grade range is provisional, not a grading policy stated in the paper. The school must confirm its grading scale before the range is represented as official policy.

@@ -1,3 +1,11 @@
+const campusImage = document.querySelector('.home-visual img');
+
+if (campusImage && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => campusImage.classList.add('campus-image--revealing'));
+  });
+}
+
 for (const form of document.querySelectorAll('[data-password-match-form]')) {
   const password = form.querySelector('[data-password-source]');
   const confirmation = form.querySelector('[data-password-confirm]');

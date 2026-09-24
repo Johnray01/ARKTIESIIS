@@ -12,6 +12,15 @@
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
   <% if (!isStaff) { %>
+    <section class="admin-section" aria-labelledby="form137-status-title">
+      <div class="admin-section__heading"><div><h2 id="form137-status-title">Form 137 physical record</h2><p>Form 137 is tracked as a physical document. No file is uploaded or processed.</p></div></div>
+      <p><strong>Status:</strong> <%= form137Status.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></p>
+      <% if (form137Status.instruction) { %><p class="form-alert" role="status"><%= form137Status.instruction %></p><% } %>
+      <% if (form137Status.created_at) { %><p class="muted-copy">Updated <%= new Date(form137Status.created_at).toLocaleString() %></p><% } %>
+    </section>
+  <% } %>
+
+  <% if (!isStaff) { %>
     <section class="admin-section" aria-labelledby="upload-title">
       <div class="admin-section__heading"><div><h2 id="upload-title">Upload a document</h2><p>Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p></div></div>
       <form class="form-stack document-upload-form" method="post" action="/documents" enctype="multipart/form-data">
@@ -57,7 +66,7 @@
                 <td data-label="Document"><%= documentTypeLabel(document.document_type) %><% if (document.supersedes_document_id) { %><br><span class="muted-copy">Corrected submission</span><% } %></td>
                 <td data-label="File"><%= document.original_filename %></td>
                 <td data-label="Status"><%= document.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %>
-                  <% if (document.latest_review_action === 'correction_requested' && document.latest_review_instruction) { %><br><span class="muted-copy">Correction requested</span><% } %>
+                  <% if (document.status === 'needs_review' && (document.latest_decision_type === 'correction_requested' || document.latest_review_action === 'correction_requested')) { %><br><span class="muted-copy">Correction requested</span><% } %>
                 </td>
                 <td data-label="Submitted"><%= document.created_at ? new Date(document.created_at).toLocaleString() : '—' %></td>
                 <td data-label="Actions"><a class="table-action" href="/documents/<%= document.id %>">View details</a></td>

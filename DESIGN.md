@@ -140,9 +140,15 @@ The header, footer, and page content share a maximum width of 72rem. On wide scr
 
 Authenticated workspaces use compact top spacing so their page heading and primary task remain visible near the navigation. Record tables wrap related actions together and present student and enrollment states in readable labels. On existing student profiles, registrars see the student number as read-only; new profiles still accept a number, and database administrators can correct one. On a finance account page, the account is the primary content and the back link returns to the prior filtered workspace. Academic grade history stays visible while its edit and add forms are grouped in a native disclosure; validation errors reopen that disclosure.
 
+Home, sign-in, and workspace heading blocks align to a thin neutral folio spine. On the wide homepage, the school-account copy and sign-in action share a row; they stack on narrow screens.
+
 ## Elevation & Depth
 
 The interface is flat. Neutral borders separate panels and controls; there are no decorative shadows. Focus is shown with a clear outline rather than elevation.
+
+## Motion
+
+The homepage building photograph uses one short top-to-bottom reveal on entry. The image stays visible when scripts do not run, and reduced-motion preferences skip the reveal.
 
 ## Shapes
 

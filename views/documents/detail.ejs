@@ -1,5 +1,7 @@
 <%- include('../partials/head', { title }) %>
 <main class="page-shell dashboard-page records-page" id="main-content">
+  <% const latestDecision = document.decisions[0] || null; %>
+  <% const correctionRequested = latestDecision ? latestDecision.decision_type === 'correction_requested' : document.reviewEvents[0]?.action_type === 'correction_requested'; %>
   <section class="dashboard-heading">
     <div>
       <h1><%= documentTypeLabel(document.document_type) %></h1>
@@ -15,7 +17,7 @@
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
   <section class="admin-section" aria-labelledby="submission-title">
-    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p>The uploader selected the document type. OCR extracts text only; required-field and format checks are not configured yet.</p></div></div>
+    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p><% if (document.document_type === 'form_137') { %>This is a historical Form 137 file. Current Form 137 records use the physical status workflow without uploads or OCR.<% } else { %>The uploader selected the document type. OCR suggestions are advisory, and a registrar or database administrator must inspect the source file before making a decision.<% } %></p></div></div>
     <dl class="student-profile-grid">
       <div><dt>File name</dt><dd><%= document.original_filename %></dd></div>
       <div><dt>File type</dt><dd><%= document.mime_type %></dd></div>
@@ -26,7 +28,7 @@
     </dl>
   </section>
 
-  <% if (isStaff) { %>
+  <% if (isStaff && document.document_type !== 'form_137') { %>
     <section class="admin-section" aria-labelledby="ocr-result-title">
       <div class="admin-section__heading"><div><h2 id="ocr-result-title">OCR result</h2><p>Extracted text is restricted to registrar and database administrator users. OCR does not determine document authenticity.</p></div></div>
       <% if (document.validation) { %>
@@ -39,28 +41,47 @@
         <% if (document.validation.extracted_text) { %>
           <details class="document-extracted-text"><summary>Show extracted text</summary><pre><%= document.validation.extracted_text %></pre></details>
         <% } %>
+        <% if (document.validation.advisoryChecks?.length) { %>
+          <div class="admin-section__heading"><div><h3>OCR suggestions for source inspection</h3><p>These checks only point to possible text. They do not establish acceptance or document authenticity.</p></div></div>
+          <ul class="document-review-history"><% for (const check of document.validation.advisoryChecks) { %><li>
+            <strong><%= check.label %></strong><span><%= check.found && (check.key === 'linked_student_name' || check.candidates?.length) ? 'Possible text identified' : 'Possible text not identified' %></span>
+            <% if (check.candidates?.length) { %><ul><% for (const candidate of check.candidates) { %><li><%= candidate %></li><% } %></ul><% } %>
+          </li><% } %></ul>
+        <% } %>
       <% } else { %><p class="empty-state">No OCR result has been recorded for this submission.</p><% } %>
     </section>
+  <% } else if (isStaff) { %>
+    <section class="admin-section"><p class="muted-copy">This historical Form 137 file is available to authorized staff. The physical Form 137 status workflow does not display or create OCR data.</p></section>
   <% } %>
 
-  <% if (isStaff) { %>
+  <% if (isStaff && document.document_type !== 'form_137' && ['needs_review', 'failed'].includes(document.status) && !['verified', 'rejected'].includes(latestDecision?.decision_type)) { %>
     <section class="admin-section" aria-labelledby="review-actions-title">
-      <div class="admin-section__heading"><div><h2 id="review-actions-title">Staff review handoff</h2><p>Record a review handoff or request a correction. Students can re-upload only Good Moral Certificates and report cards; staff handle Form 137 and PSA corrections.</p></div></div>
+      <div class="admin-section__heading"><div><h2 id="review-actions-title">Staff review decision</h2><p>Inspect the source document, then verify it, request a corrected upload, or reject it. <% if (document.validation?.requiresOverrideReason) { %>A reason is required to verify despite an OCR warning or failure.<% } %></p></div></div>
       <div class="admin-form-grid">
         <form class="form-stack" method="post" action="/documents/<%= document.id %>/review">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <button class="button button--secondary button--align-start" type="submit">Send for staff review</button>
         </form>
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="decision" value="verified">
+          <div class="field"><label for="verify-reason">Verification reason <%= document.validation?.requiresOverrideReason ? '(required for OCR warning or failure)' : '(optional)' %></label><textarea id="verify-reason" name="reason" rows="3" maxlength="1000" <%= document.validation?.requiresOverrideReason ? 'required' : '' %>></textarea></div>
+          <button class="button button--primary button--align-start" type="submit">Verify after source inspection</button>
+        </form>
         <form class="form-stack" method="post" action="/documents/<%= document.id %>/correction">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <div class="field"><label for="correction-instruction">Correction instruction <%= ['good_moral', 'report_card'].includes(document.document_type) ? 'for the student' : 'for staff' %></label><textarea id="correction-instruction" name="instruction" rows="4" maxlength="1000" required></textarea></div>
-          <button class="button button--primary button--align-start" type="submit">Request corrected upload</button>
+          <div class="field"><label for="correction-instruction">Correction instruction <%= document.document_type === 'psa_birth_certificate' ? 'for staff' : 'for the student' %></label><textarea id="correction-instruction" name="instruction" rows="4" maxlength="1000" required></textarea></div>
+          <button class="button button--secondary button--align-start" type="submit">Request correction</button>
+        </form>
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="decision" value="rejected">
+          <div class="field"><label for="rejection-reason">Rejection reason</label><textarea id="rejection-reason" name="reason" rows="3" maxlength="1000" required></textarea></div>
+          <button class="button button--secondary button--align-start" type="submit">Reject submission</button>
         </form>
       </div>
     </section>
-    <% if (document.reviewEvents[0]?.action_type === 'correction_requested') { %>
+    <% if (correctionRequested) { %>
       <section class="admin-section" aria-labelledby="staff-correction-title">
-        <div class="admin-section__heading"><div><h2 id="staff-correction-title">Submit corrected file</h2><p>Upload a new linked submission. Students cannot re-upload Form 137 or PSA birth certificates, so staff must supply corrections for those types.</p></div></div>
+        <div class="admin-section__heading"><div><h2 id="staff-correction-title">Submit corrected file</h2><p>Upload a new linked submission while preserving this original.</p></div></div>
         <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <p class="muted-copy">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
@@ -69,10 +90,10 @@
         </form>
       </section>
     <% } %>
-  <% } else if (document.reviewEvents[0]?.action_type === 'correction_requested') { %>
+  <% } else if (correctionRequested && document.document_type !== 'psa_birth_certificate') { %>
     <section class="admin-section" aria-labelledby="correction-title">
       <div class="admin-section__heading"><div><h2 id="correction-title">Correction requested</h2><p>Follow the instruction from staff, then upload the corrected file as a new submission.</p></div></div>
-      <p class="form-alert" role="status"><%= document.reviewEvents[0].instruction %></p>
+      <p class="form-alert" role="status"><%= latestDecision?.reason || document.reviewEvents[0]?.instruction %></p>
       <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <p class="muted-copy">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
@@ -101,9 +122,14 @@
   </section>
 
   <section class="admin-section" aria-labelledby="review-history-title">
-    <div class="admin-section__heading"><div><h2 id="review-history-title">Review history</h2><p>Review handoffs and correction instructions recorded for this submission.</p></div></div>
-    <% if (document.reviewEvents.length) { %>
+    <div class="admin-section__heading"><div><h2 id="review-history-title">Review history</h2><p>Handoffs, source inspection decisions, and correction instructions recorded for this submission.</p></div></div>
+    <% if (document.decisions.length || document.reviewEvents.length) { %>
       <ul class="document-review-history">
+        <% for (const decision of document.decisions) { %>
+          <li><strong><%= decision.decision_type === 'verified' ? 'Verified after source inspection' : decision.decision_type === 'rejected' ? 'Rejected' : 'Correction requested' %></strong><span><%= decision.created_at ? new Date(decision.created_at).toLocaleString() : '—' %><% if (isStaff) { %> · <%= decision.reviewer_name %><% } %></span>
+            <% if (decision.reason) { %><p><%= decision.reason %></p><% } %>
+          </li>
+        <% } %>
         <% for (const event of document.reviewEvents) { %>
           <li><strong><%= event.action_type === 'correction_requested' ? 'Correction requested' : 'Sent for staff review' %></strong><span><%= event.created_at ? new Date(event.created_at).toLocaleString() : '—' %><% if (isStaff) { %> · <%= event.reviewer_name %><% } %></span>
             <% if (event.instruction) { %><p><%= event.instruction %></p><% } %>

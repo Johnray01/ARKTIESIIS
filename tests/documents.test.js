@@ -47,8 +47,8 @@ test('upload validation requires supported extension, MIME, signature, nonempty 
   assert.throws(() => validateUpload(makeFile({ name: 'report.exe' }), 100), /extension and declared file type/);
 });
 
-function transactionHarness({ actorRole = 'student', ownStudentId = 44, previousOwnerId = 7, previousDocumentType = 'good_moral', failAt = null, correctionAction = 'correction_requested', hasRevision = false, fileSystem } = {}) {
-  const state = { queries: [], inserted: [], events: [], committed: false, rolledBack: false, id: 90 };
+function transactionHarness({ actorRole = 'student', ownStudentId = 44, previousOwnerId = 7, previousDocumentType = 'good_moral', failAt = null, correctionAction = 'correction_requested', hasRevision = false, documentStatus = 'needs_review', ocrResultStatus = 'needs_review', validationJson = JSON.stringify({ advisoryChecks: [{ key: 'linked_student_name', found: true }] }), previousDecision = null, fileSystem } = {}) {
+  const state = { queries: [], inserted: [], events: [], decisions: [], form137Statuses: [], committed: false, rolledBack: false, id: 90, documentStatus, previousDecision };
   const transactionFactory = () => ({
     async begin(isolation) { state.isolation = isolation; },
     request() {
@@ -59,10 +59,12 @@ function transactionHarness({ actorRole = 'student', ownStudentId = 44, previous
           const call = { statement, values: { ...values } };
           state.queries.push(call);
           if (statement.includes('FROM dbo.users')) return { recordset: actorRole ? [{ id: 7, role: actorRole }] : [] };
+          if (statement.includes('OUTER APPLY')) return { recordset: [{ id: values.documentId, student_id: 44, document_type: previousDocumentType, status: state.documentStatus, result_status: ocrResultStatus, validation_json: validationJson }] };
           if (statement.includes('FROM dbo.students') && statement.includes('WHERE user_id = @actorId')) return { recordset: ownStudentId ? [{ id: ownStudentId }] : [] };
           if (statement.includes('FROM dbo.students') && statement.includes('WHERE id = @studentId')) return { recordset: [{ id: values.studentId }] };
           if (statement.includes('FROM dbo.documents AS d')) return { recordset: [{ id: values.documentId, student_id: 44, document_type: previousDocumentType, status: 'needs_review', student_user_id: previousOwnerId }] };
           if (statement.includes('FROM dbo.documents WITH')) return { recordset: [{ id: values.documentId, student_id: 44, document_type: 'good_moral' }] };
+          if (statement.includes('FROM dbo.document_decision_events')) return { recordset: state.previousDecision ? [{ decision_type: state.previousDecision }] : [] };
           if (statement.includes('FROM dbo.document_review_events')) return { recordset: correctionAction ? [{ action_type: correctionAction }] : [] };
           if (statement.includes('SELECT TOP (1) id FROM dbo.documents')) return { recordset: hasRevision ? [{ id: 91 }] : [] };
           if (statement.includes('INSERT INTO dbo.documents')) {
@@ -71,7 +73,16 @@ function transactionHarness({ actorRole = 'student', ownStudentId = 44, previous
             return { recordset: [{ id: state.id++ }] };
           }
           if (statement.includes('INSERT INTO dbo.document_review_events')) { state.events.push(call); return { recordset: [] }; }
-          if (statement.includes('UPDATE dbo.documents')) return { recordset: [] };
+          if (statement.includes('INSERT INTO dbo.document_decision_events')) { state.decisions.push(call); return { recordset: [] }; }
+          if (statement.includes('INSERT INTO dbo.form137_status_events')) { state.form137Statuses.push(call); return { recordset: [] }; }
+          if (statement.includes('UPDATE dbo.documents')) {
+            if (statement.includes('@nextStatus')) {
+              if (state.documentStatus !== values.currentStatus || !['needs_review', 'failed'].includes(state.documentStatus)) return { recordset: [] };
+              state.documentStatus = values.nextStatus;
+              return { recordset: [{ id: values.documentId }] };
+            }
+            return { recordset: [] };
+          }
           if (statement.includes('INSERT INTO dbo.audit_logs')) {
             if (failAt === 'audit') throw new Error('database details are private');
             state.audit = call;
@@ -129,11 +140,11 @@ test('student upload derives the linked student record, uses opaque private stor
   }
 });
 
-test('students cannot upload staff-only document types or access a student record without an account link', async () => {
+test('Form 137 cannot be uploaded and students cannot access an unlinked account', async () => {
   const directory = await temporaryDirectory();
   try {
     const restricted = transactionHarness();
-    await assert.rejects(serviceWithStorage(restricted, directory).upload(7, { documentType: 'form_137', studentId: '44' }, makeFile()), /Students may upload only/);
+    await assert.rejects(serviceWithStorage(restricted, directory).upload(7, { documentType: 'form_137', studentId: '44' }, makeFile()), /physical document status/);
     assert.equal(restricted.state.inserted.length, 0);
     assert.deepEqual(await fs.readdir(directory), []);
 
@@ -178,7 +189,8 @@ test('student document lists exclude staff-only document types for the linked re
     { id: 1, document_type: 'good_moral' },
     { id: 2, document_type: 'report_card' },
     { id: 3, document_type: 'form_137' },
-    { id: 4, document_type: 'psa_birth_certificate' }
+    { id: 4, document_type: 'psa_birth_certificate', upload_source: 'registrar' },
+    { id: 5, document_type: 'psa_birth_certificate', upload_source: 'student' }
   ];
   let listSql = '';
   const pool = {
@@ -188,17 +200,23 @@ test('student document lists exclude staff-only document types for the linked re
         input(name, _type, value) { values[name] = value; return this; },
         async query(statement) {
           if (statement.startsWith('SELECT id, role FROM dbo.users')) return { recordset: [{ id: values.actorId, role: 'student' }] };
+          if (statement.includes('dbo.form137_status_events')) return { recordset: [] };
           listSql = statement;
-          const allowedTypeFilter = statement.includes("d.document_type IN ('good_moral', 'report_card')");
-          return { recordset: allowedTypeFilter ? rows.filter((row) => ['good_moral', 'report_card'].includes(row.document_type)) : rows };
+          const allowedTypeFilter = statement.includes("d.document_type IN ('good_moral', 'report_card')")
+            && statement.includes("d.upload_source IN ('registrar', 'database_admin')");
+          return { recordset: allowedTypeFilter ? rows.filter((row) => ['good_moral', 'report_card'].includes(row.document_type) || (row.document_type === 'psa_birth_certificate' && row.upload_source === 'registrar')) : rows };
         }
       };
     }
   };
   const service = createDocumentService({ getPool: async () => pool, sql: fakeSql() });
   const result = await service.listDocuments(7);
-  assert.deepEqual(result.documents.map(({ document_type }) => document_type), ['good_moral', 'report_card']);
-  assert.match(listSql, /s\.user_id = @actorId AND d\.document_type IN \('good_moral', 'report_card'\)/);
+  assert.deepEqual(result.documents.map(({ document_type }) => document_type), ['good_moral', 'report_card', 'psa_birth_certificate']);
+  assert.match(listSql, /s\.user_id = @actorId AND \(/);
+  assert.match(listSql, /d\.upload_source IN \('registrar', 'database_admin'\)/);
+  assert.match(listSql, /latest_decision\.decision_type AS latest_decision_type/);
+  assert.match(listSql, /FROM dbo\.document_decision_events AS e/);
+  assert.equal(result.form137Status.status, 'not_recorded');
 });
 
 test('OCR details are fetched only for registrar and database administrator document views', async () => {
@@ -238,8 +256,9 @@ test('OCR details are fetched only for registrar and database administrator docu
               if (deactivateAfterDocumentRead) staffIsActive = false;
               return { recordset: [{ ...document }] };
             }
-            if (statement.includes('FROM dbo.documents WHERE student_id = @studentId')) return { recordset: [{ id: 88, original_filename: 'report.pdf', status: 'needs_review' }] };
+            if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.student_id = @studentId')) return { recordset: [{ id: 88, original_filename: 'report.pdf', status: 'needs_review' }] };
             if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
+            if (statement.includes('FROM dbo.document_decision_events AS e')) return { recordset: [] };
             if (statement.includes('FROM dbo.document_validations')) return { recordset: staffIsActive ? [{
               id: 4,
               processor: 'Tesseract OCR',
@@ -263,7 +282,7 @@ test('OCR details are fetched only for registrar and database administrator docu
 
   const registrar = await readAsRole('registrar');
   assert.equal(registrar.result.validation.extracted_text, '<script>unsafe OCR text</script>');
-  assert.equal(registrar.result.validation.message, 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.');
+  assert.equal(registrar.result.validation.message, 'OCR text was extracted. Advisory checks are available; registrar or database administrator source inspection is required.');
   const validationQuery = registrar.queries.find(({ statement }) => statement.includes('FROM dbo.document_validations'));
   assert.ok(validationQuery);
   assert.match(validationQuery.statement, /id = @actorId AND is_active = 1 AND role IN \('registrar', 'database_admin'\)/);
@@ -271,6 +290,49 @@ test('OCR details are fetched only for registrar and database administrator docu
 
   const revokedRegistrar = await readAsRole('registrar', { deactivateAfterDocumentRead: true });
   assert.equal(revokedRegistrar.result.validation, null, 'active-role recheck prevents OCR text disclosure after access is revoked');
+});
+
+test('student decision history lets a final decision supersede correction and hides staff decision reasons', async () => {
+  for (const finalDecision of ['verified', 'rejected']) {
+    const queries = [];
+    const pool = {
+      request() {
+        const values = {};
+        return {
+          input(name, _type, value) { values[name] = value; return this; },
+          async query(statement) {
+            queries.push(statement);
+            if (statement.startsWith('SELECT id, role FROM dbo.users')) return { recordset: [{ id: 7, role: 'student' }] };
+            if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.id = @documentId')) {
+              return { recordset: [{
+                id: 88, student_id: 44, document_type: 'report_card', original_filename: 'report.pdf',
+                stored_filename: '5dd677e1-87fb-4214-a7c1-27aca233ae1f.pdf', mime_type: 'application/pdf',
+                file_size_bytes: 100, uploaded_by: 7, upload_source: 'student', status: finalDecision === 'verified' ? 'valid' : 'rejected',
+                supersedes_document_id: null, created_at: new Date(), student_user_id: 7,
+                student_no: 'S-44', first_name: 'Test', middle_name: null, last_name: 'Student', uploader_role: 'student'
+              }] };
+            }
+            if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.student_id = @studentId')) return { recordset: [] };
+            if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
+            if (statement.includes('FROM dbo.document_decision_events AS e')) return { recordset: [
+              { id: 2, decision_type: finalDecision, reason: null, created_at: new Date(), reviewer_name: null },
+              { id: 1, decision_type: 'correction_requested', reason: 'Upload a clearer report card.', created_at: new Date(Date.now() - 1000), reviewer_name: null }
+            ] };
+            throw new Error(`Unexpected read SQL: ${statement}`);
+          }
+        };
+      }
+    };
+    const result = await createDocumentService({ getPool: async () => pool, sql: fakeSql() }).getDocument(7, '88');
+    assert.equal(result.decisions[0].decision_type, finalDecision);
+    assert.equal(result.decisions[0].reason, null);
+    assert.equal(result.decisions[0].reviewer_name, null);
+    assert.equal(result.decisions[1].reason, 'Upload a clearer report card.');
+    const studentDecisionSql = queries.find((statement) => statement.includes('FROM dbo.document_decision_events AS e'));
+    assert.match(studentDecisionSql, /CASE WHEN e\.decision_type = 'correction_requested' THEN e\.reason ELSE NULL END AS reason/);
+    assert.doesNotMatch(studentDecisionSql, /AND e\.decision_type = 'correction_requested'/);
+    assert.doesNotMatch(studentDecisionSql, /JOIN dbo\.staff_profiles/);
+  }
 });
 
 test('failed document insert, audit, or transaction commit removes an unreferenced private file', async () => {
@@ -327,6 +389,9 @@ test('registrar can upload restricted document types and record correction/revie
   try {
     const uploadHarness = transactionHarness({ actorRole: 'registrar' });
     const service = serviceWithStorage(uploadHarness, directory);
+    const physicalOnly = transactionHarness({ actorRole: 'registrar' });
+    await assert.rejects(serviceWithStorage(physicalOnly, directory).upload(7, { studentId: '22', documentType: 'form_137' }, makeFile()), /physical document status/);
+    assert.equal(physicalOnly.state.inserted.length, 0);
     const uploaded = await service.upload(7, { studentId: '22', documentType: 'psa_birth_certificate' }, makeFile());
     assert.equal(uploadHarness.state.inserted[0].values.studentId, 22);
     assert.equal(uploadHarness.state.inserted[0].values.documentType, 'psa_birth_certificate');
@@ -338,7 +403,7 @@ test('registrar can upload restricted document types and record correction/revie
     await reviewService.addReviewEvent(7, '12', 'correction_requested', 'Upload a clearer report card.');
     assert.equal(reviewHarness.state.events[0].values.reviewerId, 7);
     assert.equal(reviewHarness.state.events[0].values.instruction, 'Upload a clearer report card.');
-    assert.ok(reviewHarness.state.queries.some(({ statement }) => statement.includes("SET status = CASE WHEN status = 'processing' THEN status ELSE 'needs_review' END")));
+    assert.equal(reviewHarness.state.queries.some(({ statement }) => statement.includes('UPDATE dbo.documents')), false, 'review handoff does not disturb pending or processing OCR state');
     assert.equal(reviewHarness.state.audit.values.action, 'registrar.document_correction_requested');
     assert.equal(reviewHarness.state.audit.values.detailsJson.includes('clearer'), false);
 
@@ -356,6 +421,96 @@ test('registrar can upload restricted document types and record correction/revie
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test('registrar and database administrator can only set Form 137 physical statuses, with correction instructions audited', async () => {
+  const registrar = transactionHarness({ actorRole: 'registrar' });
+  const result = await registrar.service.recordForm137Status(7, '44', 'correction', 'Bring a clearer paper copy to the registrar.');
+  assert.deepEqual(result, { studentId: 44, status: 'correction' });
+  assert.equal(registrar.state.form137Statuses[0].values.status, 'correction');
+  assert.equal(registrar.state.form137Statuses[0].values.instruction, 'Bring a clearer paper copy to the registrar.');
+  assert.equal(registrar.state.inserted.length, 0, 'physical status does not create a document upload');
+  assert.equal(registrar.state.audit.values.action, 'registrar.form137_status_recorded');
+  assert.equal(registrar.state.audit.values.detailsJson.includes('clearer paper copy'), false);
+
+  const missingInstruction = transactionHarness({ actorRole: 'database_admin' });
+  await assert.rejects(missingInstruction.service.recordForm137Status(7, '44', 'correction'), /instruction when requesting/);
+  assert.equal(missingInstruction.state.form137Statuses.length, 0);
+  await assert.rejects(missingInstruction.service.recordForm137Status(7, '44', 'unknown'), /valid Form 137 status/);
+
+  const student = transactionHarness({ actorRole: 'student' });
+  await assert.rejects(student.service.recordForm137Status(7, '44', 'received'), /access is no longer active/);
+});
+
+test('manual decisions require completed OCR, append history, and only verification sets valid', async () => {
+  const warning = transactionHarness({
+    actorRole: 'registrar',
+    validationJson: JSON.stringify({ advisoryChecks: [{ key: 'linked_student_name', found: false }] })
+  });
+  await assert.rejects(warning.service.decideDocument(7, '12', 'verified'), /reason to verify/);
+  assert.equal(warning.state.decisions.length, 0);
+
+  const verified = await warning.service.decideDocument(7, '12', 'verified', 'I inspected the source file and confirmed the student details.');
+  assert.deepEqual(verified, { id: 12, status: 'valid', decision: 'verified' });
+  assert.equal(warning.state.documentStatus, 'valid');
+  assert.equal(warning.state.decisions.length, 1);
+  assert.match(warning.state.queries.find(({ statement }) => statement.includes('FROM dbo.documents AS d WITH (UPDLOCK, HOLDLOCK)')).statement, /OUTER APPLY/);
+  assert.equal(warning.state.audit.values.action, 'registrar.document_review_verified');
+  assert.equal(warning.state.audit.values.detailsJson.includes('confirmed the student details'), false);
+  await assert.rejects(warning.service.decideDocument(7, '12', 'rejected', 'Duplicate'), /finish OCR/);
+
+  const correction = transactionHarness({ actorRole: 'database_admin' });
+  await correction.service.decideDocument(7, '12', 'correction_requested', 'Upload a clearer report card.');
+  assert.equal(correction.state.decisions[0].values.decisionType, 'correction_requested');
+  assert.equal(correction.state.documentStatus, 'needs_review');
+  assert.equal(correction.state.audit.values.action, 'database_admin.document_review_correction_requested');
+});
+
+test('OCR failure and legacy OCR without advisory results require an override reason', async () => {
+  const failed = transactionHarness({
+    actorRole: 'registrar', documentStatus: 'failed', ocrResultStatus: 'failed',
+    validationJson: JSON.stringify({ outcome: 'processor_unavailable' })
+  });
+  await assert.rejects(failed.service.decideDocument(7, '12', 'verified'), /reason to verify/);
+  await failed.service.decideDocument(7, '12', 'verified', 'I inspected the original source despite OCR failure.');
+  assert.equal(failed.state.documentStatus, 'valid');
+
+  const legacy = transactionHarness({
+    actorRole: 'registrar', validationJson: JSON.stringify({ stage: 'ocr', outcome: 'extracted' })
+  });
+  await assert.rejects(legacy.service.decideDocument(7, '12', 'verified'), /reason to verify/);
+  await legacy.service.decideDocument(7, '12', 'verified', 'I inspected the source; this legacy OCR result has no advisory checks.');
+  assert.equal(legacy.state.documentStatus, 'valid');
+
+  const partialLegacy = transactionHarness({
+    actorRole: 'registrar',
+    validationJson: JSON.stringify({
+      stage: 'ocr', outcome: 'extracted',
+      advisoryChecks: [{ key: 'linked_student_name', found: true }]
+    })
+  });
+  await assert.rejects(partialLegacy.service.decideDocument(7, '12', 'verified'), /reason to verify/);
+  await partialLegacy.service.decideDocument(7, '12', 'verified', 'I inspected the source; the legacy advisory set is incomplete.');
+  assert.equal(partialLegacy.state.documentStatus, 'valid');
+
+  const malformedCandidates = transactionHarness({
+    actorRole: 'registrar',
+    validationJson: JSON.stringify({ advisoryChecks: [
+      { key: 'linked_student_name', found: true },
+      { key: 'possible_school_name', found: true },
+      { key: 'apparent_grade_entries', found: true }
+    ] })
+  });
+  await assert.rejects(malformedCandidates.service.decideDocument(7, '12', 'verified'), /reason to verify/);
+  await malformedCandidates.service.decideDocument(7, '12', 'verified', 'I inspected the source; candidate text is missing from the stored OCR summary.');
+  assert.equal(malformedCandidates.state.documentStatus, 'valid');
+
+  const processing = transactionHarness({ actorRole: 'registrar', documentStatus: 'processing' });
+  await assert.rejects(processing.service.decideDocument(7, '12', 'verified', 'Reviewed'), /finish OCR/);
+  assert.equal(processing.state.decisions.length, 0, 'a staff decision cannot race an active OCR lease');
+  const noResult = transactionHarness({ actorRole: 'registrar', ocrResultStatus: null, validationJson: null });
+  await assert.rejects(noResult.service.decideDocument(7, '12', 'verified', 'Reviewed'), /OCR result must be recorded/);
+  assert.equal(noResult.state.decisions.length, 0);
 });
 
 async function withServer(app, run) {
@@ -430,13 +585,21 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
   const documentService = {
     async listDocuments(actorId) {
       calls.push(['list', actorId]);
-      return { documents: [], searchTerm: '', isStaff: actorId !== 1 };
+      return {
+        documents: [], searchTerm: '', isStaff: actorId !== 1,
+        form137Status: { status: 'not_recorded', instruction: null, created_at: null }
+      };
     },
     async getStudentDocuments(actorId, studentId) {
       calls.push(['student', actorId, studentId]);
-      return { student: { id: studentId, student_no: 'S-1', first_name: 'Test', last_name: 'Student' }, documents: [] };
+      return {
+        student: { id: studentId, student_no: 'S-1', first_name: 'Test', last_name: 'Student' },
+        documents: [], form137Status: { status: 'not_recorded', instruction: null, created_at: null }, form137StatusHistory: []
+      };
     },
     async upload(actorId, body, file) {
+      if (body.documentType === 'form_137') throw new DocumentServiceError('Form 137 is tracked as a physical status only.');
+      if (actorId === 1 && !['good_moral', 'report_card'].includes(body.documentType)) throw new DocumentServiceError('Students may upload only Good Moral Certificates and report cards.', 403);
       calls.push(['upload', actorId, body.documentType, file?.originalname]);
       return { id: actorId === 1 ? 15 : 18 };
     },
@@ -446,24 +609,41 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     },
     async getDocument(actorId, documentId) {
       calls.push(['detail', actorId, documentId]);
-      const isRestrictedDocumentType = Number(documentId) === 16;
+      const numericDocumentId = Number(documentId);
+      const isRestrictedDocumentType = numericDocumentId === 16;
+      const finalDecision = numericDocumentId === 20 ? 'rejected' : 'verified';
+      const hasFinalDecision = numericDocumentId === 20 || numericDocumentId === 21;
+      if (actorId === 1 && isRestrictedDocumentType) return null;
       return {
-        id: Number(documentId), student_id: 44, student_user_id: 1, student_no: 'S-1',
+        id: numericDocumentId, student_id: 44, student_user_id: 1, student_no: 'S-1',
         first_name: 'Test', middle_name: null, last_name: 'Student', document_type: isRestrictedDocumentType ? 'psa_birth_certificate' : 'good_moral',
         original_filename: 'moral.pdf', stored_filename: 'opaque-stored-name.pdf', mime_type: 'application/pdf',
-        file_size_bytes: 1000, uploaded_by: 1, uploader_role: 'student', upload_source: 'student',
-        status: 'needs_review', supersedes_document_id: null, created_at: new Date(),
-        history: [{ id: Number(documentId), original_filename: 'moral.pdf', status: 'needs_review', supersedes_document_id: null, created_at: new Date() }],
+        file_size_bytes: 1000, uploaded_by: isRestrictedDocumentType ? 2 : 1, uploader_role: isRestrictedDocumentType ? 'registrar' : 'student', upload_source: isRestrictedDocumentType ? 'registrar' : 'student',
+        status: numericDocumentId === 20 ? 'rejected' : numericDocumentId === 21 ? 'valid' : 'needs_review', supersedes_document_id: null, created_at: new Date(),
+        history: [{ id: numericDocumentId, original_filename: 'moral.pdf', status: 'needs_review', supersedes_document_id: null, created_at: new Date() }],
         reviewEvents: [{ id: 1, action_type: 'correction_requested', instruction: 'Upload a clearer file <script>alert(1)</script>', created_at: new Date(), reviewer_name: 'Registrar' }],
         validation: actorId === 1 ? null : {
           processor: 'Tesseract OCR',
           extracted_text: '<img src=x onerror=alert(1)>',
           result_status: 'needs_review',
           created_at: new Date(),
-          message: 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'
+          message: 'OCR text was extracted. Advisory checks are available; registrar or database administrator source inspection is required.',
+          advisoryChecks: [
+            { key: 'linked_student_name', label: 'Linked student name appears in the extracted text', found: false },
+            { key: 'possible_school_name', label: 'Possible school name', found: true, candidates: ['Possible Academy'] }
+          ],
+          requiresOverrideReason: true
         },
+        decisions: hasFinalDecision ? [
+          { id: 2, decision_type: finalDecision, reason: null, created_at: new Date(), reviewer_name: null },
+          { id: 1, decision_type: 'correction_requested', reason: 'Upload a clearer file.', created_at: new Date(Date.now() - 1000), reviewer_name: null }
+        ] : [],
         isStaff: actorId !== 1
       };
+    },
+    async recordForm137Status(actorId, studentId, status, instruction) {
+      calls.push(['form137', actorId, studentId, status, instruction]);
+      return { studentId, status };
     }
   };
   const app = createApp({
@@ -482,7 +662,9 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.equal(studentPage.status, 200, JSON.stringify(calls));
     assert.match(studentHtml, /Good Moral Certificate/);
     assert.match(studentHtml, /Report card/);
-    assert.doesNotMatch(studentHtml, /Form 137|PSA birth certificate/);
+    assert.match(studentHtml, /Form 137 physical record/);
+    assert.match(studentHtml, /Not recorded/);
+    assert.doesNotMatch(studentHtml, /option value="form_137"|option value="psa_birth_certificate"/);
     assert.doesNotMatch(studentHtml, /OCR output|extracted text/i);
     assert.equal((await fetch(`${baseUrl}/documents/students/44`, { headers: { cookie: studentCookie } })).status, 403);
 
@@ -511,6 +693,14 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.match(studentDetailHtml, /action="\/documents\/15\/reupload"/);
     assert.doesNotMatch(studentDetailHtml, /opaque-stored-name|extracted text|OCR output|img src=x onerror/i);
 
+    for (const [documentId, expectedStatus] of [[20, /Rejected/], [21, /Valid/]]) {
+      const finalDetail = await fetch(`${baseUrl}/documents/${documentId}`, { headers: { cookie: studentCookie } });
+      const finalDetailHtml = await finalDetail.text();
+      assert.equal(finalDetail.status, 200);
+      assert.match(finalDetailHtml, expectedStatus);
+      assert.doesNotMatch(finalDetailHtml, new RegExp(`action="/documents/${documentId}/reupload"`), 'a final decision clears the old correction action');
+    }
+
     const studentCorrection = new FormData();
     studentCorrection.set('_csrf', csrfFromHtml(studentDetailHtml));
     studentCorrection.set('document', new Blob([Buffer.from('%PDF-1.7\ncorrected')], { type: 'application/pdf' }), 'corrected.pdf');
@@ -531,11 +721,24 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.equal(staffPage.status, 200);
     const staffPageHtml = await staffPage.text();
     assert.match(staffPageHtml, /PSA birth certificate/);
+    assert.doesNotMatch(staffPageHtml, /option value="form_137"/);
+    assert.match(staffPageHtml, /option value="psa_birth_certificate"/);
+    assert.match(staffPageHtml, /Not recorded/);
+
+    const statusWrite = await fetch(`${baseUrl}/documents/students/44/form137-status`, {
+      method: 'POST',
+      headers: { cookie: registrarCookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ _csrf: csrfFromHtml(staffPageHtml), status: 'received', instruction: '' }),
+      redirect: 'manual'
+    });
+    assert.equal(statusWrite.status, 303);
+    assert.equal(calls.some(([action, actorId, studentId, status]) => action === 'form137' && actorId === 2 && studentId === 44 && status === 'received'), true);
+    assert.equal(processingCalls.length, 2, 'physical status updates do not schedule OCR');
 
     const staffUpload = new FormData();
     staffUpload.set('_csrf', csrfFromHtml(staffPageHtml));
-    staffUpload.set('documentType', 'form_137');
-    staffUpload.set('document', new Blob([Buffer.from('%PDF-1.7\nstaff source')], { type: 'application/pdf' }), 'form-137.pdf');
+    staffUpload.set('documentType', 'psa_birth_certificate');
+    staffUpload.set('document', new Blob([Buffer.from('%PDF-1.7\nstaff source')], { type: 'application/pdf' }), 'psa.pdf');
     const acceptedStaffWrite = await fetch(`${baseUrl}/documents/students/44`, {
       method: 'POST', headers: { cookie: registrarCookie }, body: staffUpload, redirect: 'manual'
     });
@@ -546,7 +749,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     const restrictedStaffDetail = await fetch(`${baseUrl}/documents/16`, { headers: { cookie: registrarCookie } });
     const restrictedStaffDetailHtml = await restrictedStaffDetail.text();
     assert.equal(restrictedStaffDetail.status, 200);
-    assert.match(restrictedStaffDetailHtml, /Students cannot re-upload Form 137 or PSA birth certificates, so staff must supply corrections/);
+    assert.match(restrictedStaffDetailHtml, /Correction instruction for staff/);
     assert.match(restrictedStaffDetailHtml, /action="\/documents\/16\/reupload"/);
     assert.doesNotMatch(restrictedStaffDetailHtml, /Follow the instruction from staff, then upload the corrected file as a new submission/);
     const correctedStaffUpload = new FormData();
@@ -563,8 +766,10 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     const staffDetail = await fetch(`${baseUrl}/documents/15`, { headers: { cookie: registrarCookie } });
     const staffDetailHtml = await staffDetail.text();
     assert.equal(staffDetail.status, 200);
-    assert.match(staffDetailHtml, /action="\/documents\/15\/review"/);
+    assert.match(staffDetailHtml, /action="\/documents\/15\/decision"/);
     assert.match(staffDetailHtml, /action="\/documents\/15\/correction"/);
+    assert.match(staffDetailHtml, /Possible Academy/);
+    assert.match(staffDetailHtml, /Possible text identified/);
     assert.match(staffDetailHtml, /&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.doesNotMatch(staffDetailHtml, /<img src=x onerror=alert\(1\)>/);
     assert.doesNotMatch(staffDetailHtml, /opaque-stored-name/);
@@ -638,6 +843,7 @@ test('authorized student download opens the opaque private file only after curre
           if (statement.includes('FROM dbo.users WHERE id = @actorId')) return { recordset: [{ id: 7, role: 'student' }] };
           if (statement.includes('FROM dbo.documents WHERE student_id = @studentId')) return { recordset: [] };
           if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
+          if (statement.includes('FROM dbo.document_decision_events AS e')) return { recordset: [] };
           throw new Error(`Unexpected read SQL: ${statement}`);
         }
       };
@@ -658,4 +864,39 @@ test('authorized student download opens the opaque private file only after curre
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test('student PSA reads depend on immutable staff upload source and own student link', async () => {
+  const calls = [];
+  const pool = {
+    request() {
+      const values = {};
+      return {
+        input(name, _type, value) { values[name] = value; return this; },
+        async query(statement) {
+          calls.push({ statement, values: { ...values } });
+          if (statement.startsWith('SELECT id, role FROM dbo.users')) return { recordset: [{ id: 7, role: 'student' }] };
+          if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.id = @documentId')) {
+            const rows = {
+              88: { id: 88, document_type: 'psa_birth_certificate', upload_source: 'registrar', student_user_id: 7, uploader_role: 'student' },
+              89: { id: 89, document_type: 'psa_birth_certificate', upload_source: 'student', student_user_id: 7, uploader_role: 'registrar' },
+              90: { id: 90, document_type: 'psa_birth_certificate', upload_source: 'registrar', student_user_id: 8, uploader_role: 'registrar' }
+            };
+            const row = rows[values.documentId];
+            return { recordset: row?.student_user_id === values.actorId && row.upload_source !== 'student' ? [row] : [] };
+          }
+          if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.student_id = @studentId')) return { recordset: [] };
+          if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
+          if (statement.includes('FROM dbo.document_decision_events AS e')) return { recordset: [] };
+          throw new Error(`Unexpected PSA read SQL: ${statement}`);
+        }
+      };
+    }
+  };
+  const service = createDocumentService({ getPool: async () => pool, sql: fakeSql() });
+  assert.equal((await service.getDocument(7, '88')).upload_source, 'registrar');
+  assert.equal(await service.getDocument(7, '89'), null, 'student-uploaded PSA is not exposed');
+  assert.equal(await service.getDocument(7, '90'), null, 'another student PSA is not exposed');
+  const documentQuery = calls.find(({ statement }) => statement.includes('WHERE d.id = @documentId'));
+  assert.match(documentQuery.statement, /d\.upload_source IN \('registrar', 'database_admin'\)/);
 });

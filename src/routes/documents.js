@@ -13,6 +13,7 @@ const DOCUMENT_TYPES = [
   { value: 'psa_birth_certificate', label: 'PSA birth certificate' }
 ];
 const STUDENT_DOCUMENT_TYPES = DOCUMENT_TYPES.slice(0, 2);
+const STAFF_UPLOAD_DOCUMENT_TYPES = DOCUMENT_TYPES.filter(({ value }) => value !== 'form_137');
 
 function configuredMaxBytes(environment) {
   const maxMb = Number(environment?.upload?.maxMb ?? 10);
@@ -91,7 +92,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         documents: result.documents,
         searchTerm: result.searchTerm,
         isStaff: result.isStaff,
-        documentTypes: result.isStaff ? DOCUMENT_TYPES : STUDENT_DOCUMENT_TYPES,
+        documentTypes: result.isStaff ? STAFF_UPLOAD_DOCUMENT_TYPES : STUDENT_DOCUMENT_TYPES,
+        form137Status: result.form137Status,
         documentType,
         uploadMaxMb,
         error,
@@ -115,7 +117,9 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         csrfToken: ensureCsrfToken(req),
         student: workspace.student,
         documents: workspace.documents,
-        documentTypes: DOCUMENT_TYPES,
+        documentTypes: STAFF_UPLOAD_DOCUMENT_TYPES,
+        form137Status: workspace.form137Status,
+        form137StatusHistory: workspace.form137StatusHistory,
         uploadMaxMb,
         error,
         notice: req.query.notice === 'uploaded'
@@ -167,6 +171,23 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     }
   });
 
+  router.post('/students/:studentId/form137-status', requireRole(...STAFF_ROLES), async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+    const studentId = normalizeId(req.params.studentId);
+    if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
+    try {
+      await service.recordForm137Status(req.authUser.id, studentId, req.body?.status, req.body?.instruction);
+      return res.redirect(303, `/documents/students/${studentId}?notice=form137StatusRecorded`);
+    } catch (error) {
+      if (error instanceof DocumentServiceError && error.status < 500) {
+        return renderStudentDocuments(req, res, studentId, { status: error.status, error: error.message });
+      }
+      return renderError(res, error, 'The Form 137 status could not be saved.');
+    }
+  });
+
   router.get('/:id', async (req, res) => {
     try {
       const document = await service.getDocument(req.authUser.id, req.params.id);
@@ -177,9 +198,7 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         currentUser: req.authUser,
         csrfToken: ensureCsrfToken(req),
         document: visibleDocument,
-        documentTypes: document.document_type === 'form_137' || document.document_type === 'psa_birth_certificate'
-          ? DOCUMENT_TYPES
-          : STUDENT_DOCUMENT_TYPES,
+        documentTypes: document.isStaff ? STAFF_UPLOAD_DOCUMENT_TYPES : STUDENT_DOCUMENT_TYPES,
         uploadMaxMb,
         isStaff: document.isStaff,
         error: null,
@@ -187,8 +206,10 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
           ? 'Document uploaded.'
           : req.query.notice === 'reviewRequested'
             ? 'Document sent for staff review.'
-            : req.query.notice === 'correctionRequested'
-              ? 'Correction instructions sent to the student.'
+          : req.query.notice === 'correctionRequested'
+            ? 'Correction instructions sent to the student.'
+            : req.query.notice === 'decisionRecorded'
+              ? 'Staff decision recorded.'
               : null,
         documentTypeLabel
       });
@@ -237,10 +258,22 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }
     try {
-      await service.addReviewEvent(req.authUser.id, req.params.id, 'correction_requested', req.body?.instruction);
-      return res.redirect(303, `/documents/${normalizeId(req.params.id)}?notice=correctionRequested`);
+      await service.decideDocument(req.authUser.id, req.params.id, 'correction_requested', req.body?.instruction);
+      return res.redirect(303, `/documents/${normalizeId(req.params.id)}?notice=decisionRecorded`);
     } catch (error) {
       return renderError(res, error, 'The correction request could not be saved.');
+    }
+  });
+
+  router.post('/:id/decision', requireRole(...STAFF_ROLES), async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+    try {
+      await service.decideDocument(req.authUser.id, req.params.id, req.body?.decision, req.body?.reason);
+      return res.redirect(303, `/documents/${normalizeId(req.params.id)}?notice=decisionRecorded`);
+    } catch (error) {
+      return renderError(res, error, 'The staff decision could not be saved.');
     }
   });
 

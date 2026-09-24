@@ -88,11 +88,12 @@
 - Keep role checks, file storage, and upload limit from Phase 8; do not classify documents or claim authenticity.
 
 ## Phase 10 - Validation Rules
-- Define required fields per document type.
-- Completeness checks.
-- Basic configured format/compliance checks.
-- Valid / Needs Review / Failed states.
-- Registrar/admin review workflow.
+- Advisory OCR clues for linked student name, possible school-name lines, and apparent report-card grade-entry lines.
+- Registrar/admin source inspection with immutable verify/correction/reject decisions; only manual verification sets `valid`.
+- Physical Form 137 status history with no new file upload or OCR.
+- Institution-approved required fields, completeness, grading, and format/compliance checks remain pending school approval.
+
+**Phase 10 policy gate:** leader-selected advisory and review behavior does not constitute school approval. Keep policy-dependent acceptance checks and Phase 10 completion on hold until the institution supplies its requirements and decision wording.
 
 ## Phase 11 - Dashboards and Reporting
 - Student dashboard.

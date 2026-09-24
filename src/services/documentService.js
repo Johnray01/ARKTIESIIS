@@ -7,6 +7,8 @@ const { getPool: defaultGetPool, sql: defaultSql } = require('../config/database
 const ID_PATTERN = /^\d{1,10}$/;
 const STAFF_ROLES = new Set(['registrar', 'database_admin']);
 const STUDENT_DOCUMENT_TYPES = new Set(['good_moral', 'report_card']);
+const UPLOAD_DOCUMENT_TYPES = new Set(['good_moral', 'report_card', 'psa_birth_certificate']);
+const FORM137_STATUSES = new Set(['pending', 'received', 'verified', 'correction', 'rejected']);
 const MIME_BY_EXTENSION = new Map([
   ['.pdf', 'application/pdf'],
   ['.jpg', 'image/jpeg'],
@@ -15,7 +17,7 @@ const MIME_BY_EXTENSION = new Map([
 ]);
 const STORED_NAME_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|jpg|jpeg|png)$/i;
 const OCR_MESSAGES = new Map([
-  ['extracted', 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'],
+  ['extracted', 'OCR text was extracted. Advisory checks are available; registrar or database administrator source inspection is required.'],
   ['empty_ocr', 'No readable text was extracted. Staff review is required.'],
   ['malformed_response', 'The local OCR tools returned an unreadable result. Staff review is required.'],
   ['processor_unavailable', 'A local OCR utility is unavailable. Staff review is required.'],
@@ -27,6 +29,25 @@ const OCR_MESSAGES = new Map([
   ['stored_file_unavailable', 'The stored file could not be read. Staff review is required.'],
   ['processor_error', 'The local OCR tools could not process this file. Staff review is required.']
 ]);
+const ADVISORY_KEYS_BY_TYPE = new Map([
+  ['report_card', ['linked_student_name', 'possible_school_name', 'apparent_grade_entries']],
+  ['good_moral', ['linked_student_name', 'possible_school_name']],
+  ['psa_birth_certificate', ['linked_student_name']]
+]);
+
+function completeAdvisoryChecks(documentType, checks) {
+  const expectedKeys = ADVISORY_KEYS_BY_TYPE.get(documentType);
+  if (!expectedKeys || !Array.isArray(checks)) return false;
+  const keyedChecks = new Map(checks.map((check) => [check?.key, check]));
+  return expectedKeys.every((key) => {
+    const check = keyedChecks.get(key);
+    if (typeof check?.found !== 'boolean') return false;
+    if (key === 'linked_student_name') return true;
+    if (!Array.isArray(check.candidates) || check.candidates.length > 3
+      || check.candidates.some((candidate) => typeof candidate !== 'string' || candidate.length > 200)) return false;
+    return !check.found || check.candidates.length > 0;
+  });
+}
 
 class DocumentServiceError extends Error {
   constructor(message, status = 400) {
@@ -235,7 +256,10 @@ function createDocumentService({
   }
 
   function studentTypeAllowed(actor, documentType) {
-    return actor.role !== 'student' || STUDENT_DOCUMENT_TYPES.has(documentType);
+    if (documentType === 'form_137') return false;
+    return actor.role === 'student'
+      ? STUDENT_DOCUMENT_TYPES.has(documentType)
+      : UPLOAD_DOCUMENT_TYPES.has(documentType);
   }
 
   async function insertSubmission({ actor, studentId, documentType, file, metadata, supersedesDocumentId = null, onFileSaved }) {
@@ -277,7 +301,14 @@ function createDocumentService({
     const metadata = validateUpload(file, maxUploadBytes);
     return runSubmissionTransaction(async (transaction, onFileSaved) => {
       const actor = await requireActor(transaction, actorInput, new Set(['student', ...STAFF_ROLES]));
-      if (!studentTypeAllowed(actor, documentType)) throw new DocumentServiceError('Students may upload only Good Moral Certificates and report cards.', 403);
+      if (!studentTypeAllowed(actor, documentType)) {
+        const message = documentType === 'form_137'
+          ? 'Form 137 is recorded as a physical document status and cannot be uploaded.'
+          : actor.role === 'student'
+            ? 'Students may upload only Good Moral Certificates and report cards.'
+            : 'Staff may upload Good Moral Certificates, report cards, and PSA birth certificates.';
+        throw new DocumentServiceError(message, 403);
+      }
 
       let studentId;
       if (actor.role === 'student') {
@@ -319,12 +350,23 @@ function createDocumentService({
         && (previous.student_user_id !== actor.id || !STUDENT_DOCUMENT_TYPES.has(previous.document_type))) {
         throw new DocumentServiceError('Document not found.', 404);
       }
+      if (previous.document_type === 'form_137') {
+        throw new DocumentServiceError('Form 137 is tracked through its physical status history; files cannot be re-uploaded.', 403);
+      }
 
-      const reviewResult = await transaction.request()
+      const decisionResult = await transaction.request()
         .input('documentId', sql.Int, documentId)
-        .query(`SELECT TOP (1) action_type FROM dbo.document_review_events
+        .query(`SELECT TOP (1) decision_type AS action_type FROM dbo.document_decision_events
           WHERE document_id = @documentId ORDER BY created_at DESC, id DESC`);
-      if (reviewResult.recordset?.[0]?.action_type !== 'correction_requested') {
+      let correctionRequested = decisionResult.recordset?.[0]?.action_type === 'correction_requested';
+      if (!decisionResult.recordset?.length) {
+        const legacyReviewResult = await transaction.request()
+          .input('documentId', sql.Int, documentId)
+          .query(`SELECT TOP (1) action_type FROM dbo.document_review_events
+            WHERE document_id = @documentId ORDER BY created_at DESC, id DESC`);
+        correctionRequested = legacyReviewResult.recordset?.[0]?.action_type === 'correction_requested';
+      }
+      if (!correctionRequested) {
         throw new DocumentServiceError('A corrected upload has not been requested for this document.', 409);
       }
       const revisionResult = await transaction.request()
@@ -363,7 +405,7 @@ function createDocumentService({
           d.mime_type, d.file_size_bytes, d.status, d.supersedes_document_id, d.created_at,
           s.student_no, s.first_name, s.middle_name, s.last_name,
           latest.action_type AS latest_review_action, latest.instruction AS latest_review_instruction,
-          latest.created_at AS latest_review_at
+          latest.created_at AS latest_review_at, latest_decision.decision_type AS latest_decision_type
         FROM dbo.documents AS d
         INNER JOIN dbo.students AS s ON s.id = d.student_id
         OUTER APPLY (
@@ -371,6 +413,11 @@ function createDocumentService({
           FROM dbo.document_review_events AS e
           WHERE e.document_id = d.id ORDER BY e.created_at DESC, e.id DESC
         ) AS latest
+        OUTER APPLY (
+          SELECT TOP (1) e.decision_type
+          FROM dbo.document_decision_events AS e
+          WHERE e.document_id = d.id ORDER BY e.created_at DESC, e.id DESC
+        ) AS latest_decision
         WHERE (
           EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))
           AND (@searchPattern IS NULL OR s.student_no LIKE @searchPattern ESCAPE N'~'
@@ -379,10 +426,24 @@ function createDocumentService({
             OR CONCAT_WS(N' ', s.first_name, NULLIF(s.middle_name, N''), s.last_name) LIKE @searchPattern ESCAPE N'~')
         ) OR (
           EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role = 'student')
-          AND s.user_id = @actorId AND d.document_type IN ('good_moral', 'report_card')
+          AND s.user_id = @actorId AND (
+            d.document_type IN ('good_moral', 'report_card')
+            OR (d.document_type = 'psa_birth_certificate' AND d.upload_source IN ('registrar', 'database_admin'))
+          )
         )
         ORDER BY d.created_at DESC, d.id DESC`);
-    return { documents: result.recordset || [], searchTerm, isStaff: STAFF_ROLES.has(actor.role) };
+    let form137Status = null;
+    if (actor.role === 'student') {
+      const statusResult = await pool.request()
+        .input('actorId', sql.Int, actor.id)
+        .query(`SELECT TOP (1) e.status, e.instruction, e.created_at
+          FROM dbo.students AS s
+          INNER JOIN dbo.form137_status_events AS e ON e.student_id = s.id
+          WHERE s.user_id = @actorId
+          ORDER BY e.created_at DESC, e.id DESC`);
+      form137Status = statusResult.recordset?.[0] || { status: 'not_recorded', instruction: null, created_at: null };
+    }
+    return { documents: result.recordset || [], searchTerm, isStaff: STAFF_ROLES.has(actor.role), form137Status };
   }
 
   async function getStudentDocuments(actorInput, studentInput) {
@@ -399,23 +460,46 @@ function createDocumentService({
           AND EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))`);
     const student = studentResult.recordset?.[0];
     if (!student) return null;
-    const documentResult = await pool.request()
+    const [documentResult, form137StatusResult] = await Promise.all([
+      pool.request()
       .input('studentId', sql.Int, studentId)
       .input('actorId', sql.Int, actor.id)
       .query(`SELECT d.id, d.student_id, d.document_type, d.original_filename,
           d.mime_type, d.file_size_bytes, d.status, d.supersedes_document_id, d.created_at,
           latest.action_type AS latest_review_action, latest.instruction AS latest_review_instruction,
-          latest.created_at AS latest_review_at
+          latest.created_at AS latest_review_at, latest_decision.decision_type AS latest_decision_type
         FROM dbo.documents AS d
         OUTER APPLY (
           SELECT TOP (1) e.action_type, e.instruction, e.created_at
           FROM dbo.document_review_events AS e
           WHERE e.document_id = d.id ORDER BY e.created_at DESC, e.id DESC
         ) AS latest
+        OUTER APPLY (
+          SELECT TOP (1) e.decision_type
+          FROM dbo.document_decision_events AS e
+          WHERE e.document_id = d.id ORDER BY e.created_at DESC, e.id DESC
+        ) AS latest_decision
         WHERE d.student_id = @studentId
           AND EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))
-        ORDER BY d.created_at DESC, d.id DESC`);
-    return { student, documents: documentResult.recordset || [] };
+        ORDER BY d.created_at DESC, d.id DESC`),
+      pool.request()
+        .input('studentId', sql.Int, studentId)
+        .input('actorId', sql.Int, actor.id)
+        .query(`SELECT e.id, e.status, e.instruction, e.created_at,
+            e.recorded_by, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(p.first_name, N' ', p.last_name))), N''), CONCAT(N'Staff ', e.recorded_by)) AS recorded_by_name
+          FROM dbo.form137_status_events AS e
+          LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.recorded_by
+          WHERE e.student_id = @studentId
+            AND EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))
+          ORDER BY e.created_at DESC, e.id DESC`)
+    ]);
+    const form137StatusHistory = form137StatusResult.recordset || [];
+    return {
+      student,
+      documents: documentResult.recordset || [],
+      form137Status: form137StatusHistory[0] || { status: 'not_recorded', instruction: null, created_at: null },
+      form137StatusHistory
+    };
   }
 
   async function getDocument(actorInput, documentInput) {
@@ -436,11 +520,14 @@ function createDocumentService({
         WHERE d.id = @documentId
           AND (EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))
             OR (EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND is_active = 1 AND role = 'student')
-              AND s.user_id = @actorId AND d.document_type IN ('good_moral', 'report_card')))`);
+              AND s.user_id = @actorId AND (
+                d.document_type IN ('good_moral', 'report_card')
+                OR (d.document_type = 'psa_birth_certificate' AND d.upload_source IN ('registrar', 'database_admin'))
+              )))`);
     const document = documentResult.recordset?.[0];
     if (!document) return null;
 
-    const validationPromise = STAFF_ROLES.has(actor.role)
+    const validationPromise = STAFF_ROLES.has(actor.role) && document.document_type !== 'form_137'
       ? pool.request()
         .input('documentId', sql.Int, documentId)
         .input('actorId', sql.Int, actor.id)
@@ -451,28 +538,63 @@ function createDocumentService({
               WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))
           ORDER BY created_at DESC, id DESC`)
       : Promise.resolve({ recordset: [] });
-    const [historyResult, eventsResult, validationResult] = await Promise.all([
+    const visibleReviewer = STAFF_ROLES.has(actor.role)
+      ? "COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(p.first_name, N' ', p.last_name))), N''), CONCAT(N'Staff ', e.reviewer_id))"
+      : 'CAST(NULL AS NVARCHAR(201))';
+    const reviewHistorySql = STAFF_ROLES.has(actor.role)
+      ? `SELECT e.id, e.action_type, e.instruction, e.created_at,
+          e.reviewer_id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(p.first_name, N' ', p.last_name))), N''), CONCAT(N'Staff ', e.reviewer_id)) AS reviewer_name
+        FROM dbo.document_review_events AS e
+        LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.reviewer_id
+        WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`
+      : `SELECT e.id, e.action_type, e.instruction, e.created_at,
+          CAST(NULL AS INT) AS reviewer_id, CAST(NULL AS NVARCHAR(201)) AS reviewer_name
+        FROM dbo.document_review_events AS e
+        WHERE e.document_id = @documentId AND e.action_type = 'correction_requested'
+        ORDER BY e.created_at DESC, e.id DESC`;
+    const decisionHistorySql = STAFF_ROLES.has(actor.role)
+      ? `SELECT e.id, e.decision_type, e.reason, e.created_at, ${visibleReviewer} AS reviewer_name
+        FROM dbo.document_decision_events AS e
+        LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.reviewer_id
+        WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`
+      : `SELECT e.id, e.decision_type,
+          CASE WHEN e.decision_type = 'correction_requested' THEN e.reason ELSE NULL END AS reason,
+          e.created_at,
+          CAST(NULL AS NVARCHAR(201)) AS reviewer_name
+        FROM dbo.document_decision_events AS e
+        WHERE e.document_id = @documentId
+        ORDER BY e.created_at DESC, e.id DESC`;
+    const [historyResult, eventsResult, validationResult, decisionsResult] = await Promise.all([
       pool.request()
         .input('studentId', sql.Int, document.student_id)
         .input('documentType', sql.NVarChar(50), document.document_type)
+        .input('actorId', sql.Int, actor.id)
         .query(`SELECT id, original_filename, status, supersedes_document_id, created_at
-          FROM dbo.documents WHERE student_id = @studentId AND document_type = @documentType
-          ORDER BY created_at DESC, id DESC`),
+          FROM dbo.documents AS d
+          WHERE d.student_id = @studentId AND d.document_type = @documentType
+            AND (d.document_type <> 'psa_birth_certificate'
+              OR EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND role IN ('registrar', 'database_admin'))
+              OR d.upload_source IN ('registrar', 'database_admin'))
+          ORDER BY d.created_at DESC, d.id DESC`),
       pool.request()
         .input('documentId', sql.Int, documentId)
-        .query(`SELECT e.id, e.action_type, e.instruction, e.created_at,
-            e.reviewer_id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(p.first_name, N' ', p.last_name))), N''), CONCAT(N'Staff ', e.reviewer_id)) AS reviewer_name
-          FROM dbo.document_review_events AS e
-          LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.reviewer_id
-          WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`),
-      validationPromise
+        .query(reviewHistorySql),
+      validationPromise,
+      pool.request()
+        .input('documentId', sql.Int, documentId)
+        .query(decisionHistorySql)
     ]);
     const validationRow = validationResult.recordset?.[0];
     let validation = null;
     if (validationRow) {
       let outcome = null;
+      let advisory = [];
+      let hasAdvisoryData = false;
       try {
-        outcome = JSON.parse(validationRow.validation_json)?.outcome;
+        const storedSummary = JSON.parse(validationRow.validation_json);
+        outcome = storedSummary?.outcome;
+        advisory = Array.isArray(storedSummary?.advisoryChecks) ? storedSummary.advisoryChecks : [];
+        hasAdvisoryData = completeAdvisoryChecks(document.document_type, advisory);
       } catch {
         // Ignore malformed stored summaries and use a fixed safe fallback.
       }
@@ -482,6 +604,9 @@ function createDocumentService({
         extracted_text: validationRow.extracted_text,
         result_status: validationRow.result_status,
         created_at: validationRow.created_at,
+        advisoryChecks: advisory,
+        requiresOverrideReason: document.status === 'failed' || validationRow.result_status === 'failed'
+          || !hasAdvisoryData || advisory.some((check) => check?.found === false),
         message: OCR_MESSAGES.get(outcome) || 'A processing result is available for staff review.'
       };
     }
@@ -489,6 +614,7 @@ function createDocumentService({
       ...document,
       history: historyResult.recordset || [],
       reviewEvents: eventsResult.recordset || [],
+      decisions: decisionsResult.recordset || [],
       validation,
       isStaff: STAFF_ROLES.has(actor.role)
     };
@@ -513,6 +639,9 @@ function createDocumentService({
           WHERE id = @documentId`);
       const document = documentResult.recordset?.[0];
       if (!document) throw new DocumentServiceError('Document not found.', 404);
+      if (document.document_type === 'form_137') {
+        throw new DocumentServiceError('Form 137 uses the physical status workflow.', 409);
+      }
       await transaction.request()
         .input('documentId', sql.Int, documentId)
         .input('reviewerId', sql.Int, actor.id)
@@ -520,11 +649,6 @@ function createDocumentService({
         .input('instruction', sql.NVarChar(1000), action === 'correction_requested' ? instruction : null)
         .query(`INSERT INTO dbo.document_review_events (document_id, reviewer_id, action_type, instruction)
           VALUES (@documentId, @reviewerId, @actionType, @instruction)`);
-      await transaction.request()
-        .input('documentId', sql.Int, documentId)
-        .query(`UPDATE dbo.documents
-          SET status = CASE WHEN status = 'processing' THEN status ELSE 'needs_review' END
-          WHERE id = @documentId`);
       await writeAudit(transaction, {
         actor,
         action: action === 'correction_requested' ? 'correction_requested' : 'review_handoff',
@@ -533,6 +657,141 @@ function createDocumentService({
         documentType: document.document_type
       });
       return documentId;
+    });
+  }
+
+  async function decideDocument(actorInput, documentInput, decisionInput, reasonInput = '') {
+    const documentId = normalizeId(documentInput);
+    if (!documentId) throw new DocumentServiceError('Document not found.', 404);
+    const decision = ['verified', 'correction_requested', 'rejected'].includes(decisionInput) ? decisionInput : null;
+    if (!decision) throw new DocumentServiceError('Choose a valid document decision.');
+    const reason = typeof reasonInput === 'string' ? reasonInput.trim() : '';
+    if (reason.length > 1000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(reason)) {
+      throw new DocumentServiceError('Enter a review reason up to 1000 characters.');
+    }
+    if (decision !== 'verified' && !reason) {
+      throw new DocumentServiceError('Enter a correction instruction or rejection reason.');
+    }
+
+    return runTransaction(async (transaction) => {
+      const actor = await requireActor(transaction, actorInput, new Set(STAFF_ROLES));
+      const documentResult = await transaction.request()
+        .input('documentId', sql.Int, documentId)
+        .query(`SELECT d.id, d.student_id, d.document_type, d.status,
+            validation.result_status, validation.validation_json
+          FROM dbo.documents AS d WITH (UPDLOCK, HOLDLOCK)
+          OUTER APPLY (
+            SELECT TOP (1) result_status, validation_json
+            FROM dbo.document_validations
+            WHERE document_id = d.id
+            ORDER BY created_at DESC, id DESC
+          ) AS validation
+          WHERE d.id = @documentId`);
+      const document = documentResult.recordset?.[0];
+      if (!document) throw new DocumentServiceError('Document not found.', 404);
+      if (document.document_type === 'form_137') {
+        throw new DocumentServiceError('Form 137 uses the physical status workflow.', 409);
+      }
+      if (!['needs_review', 'failed'].includes(document.status)) {
+        throw new DocumentServiceError('The document must finish OCR before staff review.', 409);
+      }
+      if (!document.result_status) {
+        throw new DocumentServiceError('An OCR result must be recorded before staff review.', 409);
+      }
+
+      const latestDecisionResult = await transaction.request()
+        .input('documentId', sql.Int, documentId)
+        .query(`SELECT TOP (1) decision_type FROM dbo.document_decision_events
+          WHERE document_id = @documentId ORDER BY created_at DESC, id DESC`);
+      const previousDecision = latestDecisionResult.recordset?.[0]?.decision_type;
+      if (previousDecision === 'verified' || previousDecision === 'rejected') {
+        throw new DocumentServiceError('This submission already has a final staff decision.', 409);
+      }
+
+      let advisoryChecks = [];
+      let hasSummary = false;
+      let hasAdvisoryChecks = false;
+      try {
+        const summary = JSON.parse(document.validation_json);
+        hasSummary = Boolean(summary && typeof summary === 'object');
+        advisoryChecks = Array.isArray(summary?.advisoryChecks) ? summary.advisoryChecks : [];
+        hasAdvisoryChecks = completeAdvisoryChecks(document.document_type, advisoryChecks);
+      } catch {
+        // A malformed advisory summary is not allowed to bypass the source inspection decision.
+      }
+      const hasOcrWarning = !hasSummary
+        || !hasAdvisoryChecks
+        || document.status === 'failed'
+        || document.result_status === 'failed'
+        || advisoryChecks.some((check) => check?.found === false);
+      if (decision === 'verified' && hasOcrWarning && !reason) {
+        throw new DocumentServiceError('Enter a reason to verify a submission with an OCR warning or failure.');
+      }
+
+      await transaction.request()
+        .input('documentId', sql.Int, documentId)
+        .input('reviewerId', sql.Int, actor.id)
+        .input('decisionType', sql.NVarChar(40), decision)
+        .input('reason', sql.NVarChar(1000), reason || null)
+        .query(`INSERT INTO dbo.document_decision_events (document_id, reviewer_id, decision_type, reason)
+          VALUES (@documentId, @reviewerId, @decisionType, @reason)`);
+
+      const nextStatus = decision === 'verified' ? 'valid' : decision === 'rejected' ? 'rejected' : 'needs_review';
+      const updateResult = await transaction.request()
+        .input('documentId', sql.Int, documentId)
+        .input('nextStatus', sql.NVarChar(30), nextStatus)
+        .input('currentStatus', sql.NVarChar(30), document.status)
+        .query(`UPDATE dbo.documents SET status = @nextStatus, processing_started_at = NULL
+          OUTPUT INSERTED.id AS id
+          WHERE id = @documentId AND status = @currentStatus AND status IN ('needs_review', 'failed')`);
+      if (!updateResult.recordset?.length) {
+        throw new DocumentServiceError('The submission state changed before the staff decision could be saved.', 409);
+      }
+      await writeAudit(transaction, {
+        actor,
+        action: `review_${decision}`,
+        documentId,
+        studentId: document.student_id,
+        documentType: document.document_type
+      });
+      return { id: documentId, status: nextStatus, decision };
+    });
+  }
+
+  async function recordForm137Status(actorInput, studentInput, statusInput, instructionInput = '') {
+    const studentId = normalizeId(studentInput);
+    if (!studentId) throw new DocumentServiceError('Student record not found.', 404);
+    const status = FORM137_STATUSES.has(statusInput) ? statusInput : null;
+    if (!status) throw new DocumentServiceError('Choose a valid Form 137 status.');
+    const instruction = typeof instructionInput === 'string' ? instructionInput.trim() : '';
+    if (instruction.length > 1000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(instruction)) {
+      throw new DocumentServiceError('Enter a status instruction up to 1000 characters.');
+    }
+    if (status === 'correction' && !instruction) {
+      throw new DocumentServiceError('Enter an instruction when requesting a Form 137 correction.');
+    }
+
+    return runTransaction(async (transaction) => {
+      const actor = await requireActor(transaction, actorInput, new Set(STAFF_ROLES));
+      const studentResult = await transaction.request()
+        .input('studentId', sql.Int, studentId)
+        .query('SELECT id FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+      if (!studentResult.recordset?.length) throw new DocumentServiceError('Student record not found.', 404);
+      await transaction.request()
+        .input('studentId', sql.Int, studentId)
+        .input('recorderId', sql.Int, actor.id)
+        .input('status', sql.NVarChar(30), status)
+        .input('instruction', sql.NVarChar(1000), instruction || null)
+        .query(`INSERT INTO dbo.form137_status_events (student_id, recorded_by, status, instruction)
+          VALUES (@studentId, @recorderId, @status, @instruction)`);
+      await transaction.request()
+        .input('actorId', sql.Int, actor.id)
+        .input('action', sql.NVarChar(100), `${actor.role}.form137_status_recorded`)
+        .input('entityId', sql.NVarChar(100), String(studentId))
+        .input('detailsJson', sql.NVarChar(sql.MAX), JSON.stringify({ status }))
+        .query(`INSERT INTO dbo.audit_logs (user_id, action, entity_type, entity_id, details_json)
+          VALUES (@actorId, @action, 'form137_status', @entityId, @detailsJson)`);
+      return { studentId, status };
     });
   }
 
@@ -554,7 +813,17 @@ function createDocumentService({
     }
   }
 
-  return { upload, reupload, listDocuments, getStudentDocuments, getDocument, addReviewEvent, openDownload };
+  return {
+    upload,
+    reupload,
+    listDocuments,
+    getStudentDocuments,
+    getDocument,
+    addReviewEvent,
+    decideDocument,
+    recordForm137Status,
+    openDownload
+  };
 }
 
 module.exports = {
