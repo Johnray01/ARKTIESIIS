@@ -1,6 +1,7 @@
 const app = require('./app');
 const env = require('./config/environment');
 const { getPool } = require('./config/database');
+const { createDocumentProcessingService, startProcessingRecoveryScheduler } = require('./services/documentProcessingService');
 
 async function start() {
   try {
@@ -11,9 +12,13 @@ async function start() {
     return null;
   }
 
+  const processingRecovery = startProcessingRecoveryScheduler(createDocumentProcessingService({ getPool }));
+  await processingRecovery.run();
+
   const server = app.listen(env.port, () => {
     console.log(`ARKTIESIIS running at http://localhost:${env.port}`);
   });
+  server.once('close', processingRecovery.stop);
   return server;
 }
 

@@ -3,6 +3,7 @@ const multer = require('multer');
 const { ensureCsrfToken, hasValidCsrfToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { DocumentServiceError, createDocumentService, normalizeId } = require('../services/documentService');
+const { createDocumentProcessingService } = require('../services/documentProcessingService');
 
 const STAFF_ROLES = ['registrar', 'database_admin'];
 const DOCUMENT_TYPES = [
@@ -34,13 +35,20 @@ function uploadErrorMessage(error) {
   return 'The upload request could not be processed. Check the file and try again.';
 }
 
-function createDocumentsRouter({ getPool, sql, environment, documentService } = {}) {
+function createDocumentsRouter({ getPool, sql, environment, documentService, documentProcessingService } = {}) {
   const router = express.Router();
   const service = documentService || createDocumentService({
     getPool,
     sql,
     storageDirectory: environment?.upload?.storageDirectory,
     maxUploadBytes: configuredMaxBytes(environment)
+  });
+  const processingService = documentProcessingService || createDocumentProcessingService({
+    getPool,
+    sql,
+    storageDirectory: environment?.upload?.storageDirectory,
+    documentAIConfig: environment?.documentAI,
+    timeoutMs: environment?.documentAI?.timeoutMs
   });
   const maxUploadBytes = configuredMaxBytes(environment);
   const uploadMaxMb = configuredMaxMegabytes(environment);
@@ -85,7 +93,11 @@ function createDocumentsRouter({ getPool, sql, environment, documentService } = 
         documentType,
         uploadMaxMb,
         error,
-        notice: req.query.notice === 'uploaded' ? 'Document uploaded.' : null,
+        notice: req.query.notice === 'uploaded'
+          ? 'Document uploaded.'
+          : req.query.notice === 'processingPending'
+            ? 'The upload was saved, but its processing result could not be recorded. Contact a registrar.'
+            : null,
         documentTypeLabel
       });
     } catch (loadError) {
@@ -106,7 +118,11 @@ function createDocumentsRouter({ getPool, sql, environment, documentService } = 
         documentTypes: DOCUMENT_TYPES,
         uploadMaxMb,
         error,
-        notice: req.query.notice === 'uploaded' ? 'Document uploaded.' : null,
+        notice: req.query.notice === 'uploaded'
+          ? 'Document uploaded.'
+          : req.query.notice === 'processingPending'
+            ? 'The upload was saved, but its processing result could not be recorded. Contact a registrar.'
+            : null,
         documentTypeLabel
       });
     } catch (loadError) {
@@ -122,7 +138,13 @@ function createDocumentsRouter({ getPool, sql, environment, documentService } = 
     }
     try {
       const result = await service.upload(req.authUser.id, req.body, req.file);
-      return res.redirect(303, `/documents/${result.id}?notice=uploaded`);
+      let notice = 'uploaded';
+      try {
+        await processingService.processPendingDocument(result.id);
+      } catch {
+        notice = 'processingPending';
+      }
+      return res.redirect(303, `/documents/${result.id}?notice=${notice}`);
     } catch (error) {
       return renderError(res, error, 'The document could not be uploaded.');
     }
@@ -141,8 +163,14 @@ function createDocumentsRouter({ getPool, sql, environment, documentService } = 
     const studentId = normalizeId(req.params.studentId);
     if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
     try {
-      await service.upload(req.authUser.id, { ...req.body, studentId }, req.file);
-      return res.redirect(303, `/documents/students/${studentId}?notice=uploaded`);
+      const result = await service.upload(req.authUser.id, { ...req.body, studentId }, req.file);
+      let notice = 'uploaded';
+      try {
+        await processingService.processPendingDocument(result.id);
+      } catch {
+        notice = 'processingPending';
+      }
+      return res.redirect(303, `/documents/students/${studentId}?notice=${notice}`);
     } catch (error) {
       if (error instanceof DocumentServiceError && error.status < 500) {
         return renderStudentDocuments(req, res, studentId, { status: error.status, error: error.message });
@@ -169,6 +197,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService } = 
         error: null,
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
+          : req.query.notice === 'processingPending'
+            ? 'The upload was saved, but its processing result could not be recorded. Contact a registrar.'
           : req.query.notice === 'reviewRequested'
             ? 'Document sent for staff review.'
             : req.query.notice === 'correctionRequested'
@@ -234,7 +264,13 @@ function createDocumentsRouter({ getPool, sql, environment, documentService } = 
     }
     try {
       const result = await service.reupload(req.authUser.id, req.params.id, req.file);
-      return res.redirect(303, `/documents/${result.id}?notice=uploaded`);
+      let notice = 'uploaded';
+      try {
+        await processingService.processPendingDocument(result.id);
+      } catch {
+        notice = 'processingPending';
+      }
+      return res.redirect(303, `/documents/${result.id}?notice=${notice}`);
     } catch (error) {
       return renderError(res, error, 'The corrected document could not be uploaded.');
     }

@@ -201,6 +201,78 @@ test('student document lists exclude staff-only document types for the linked re
   assert.match(listSql, /s\.user_id = @actorId AND d\.document_type IN \('good_moral', 'report_card'\)/);
 });
 
+test('OCR details are fetched only for registrar and database administrator document views', async () => {
+  const document = {
+    id: 88,
+    student_id: 44,
+    document_type: 'report_card',
+    original_filename: 'report.pdf',
+    stored_filename: '5dd677e1-87fb-4214-a7c1-27aca233ae1f.pdf',
+    mime_type: 'application/pdf',
+    file_size_bytes: 100,
+    uploaded_by: 7,
+    upload_source: 'student',
+    status: 'needs_review',
+    supersedes_document_id: null,
+    created_at: new Date(),
+    student_user_id: 7,
+    student_no: 'S-44',
+    first_name: 'Test',
+    middle_name: null,
+    last_name: 'Student',
+    uploader_role: 'student'
+  };
+
+  async function readAsRole(role, { deactivateAfterDocumentRead = false } = {}) {
+    const queries = [];
+    let staffIsActive = true;
+    const pool = {
+      request() {
+        const values = {};
+        return {
+          input(name, _type, value) { values[name] = value; return this; },
+          async query(statement) {
+            queries.push({ statement, values: { ...values } });
+            if (statement.includes('SELECT id, role FROM dbo.users')) return { recordset: [{ id: 7, role }] };
+            if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.id = @documentId')) {
+              if (deactivateAfterDocumentRead) staffIsActive = false;
+              return { recordset: [{ ...document }] };
+            }
+            if (statement.includes('FROM dbo.documents WHERE student_id = @studentId')) return { recordset: [{ id: 88, original_filename: 'report.pdf', status: 'needs_review' }] };
+            if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
+            if (statement.includes('FROM dbo.document_validations')) return { recordset: staffIsActive ? [{
+              id: 4,
+              processor: 'Google Document AI',
+              extracted_text: '<script>unsafe OCR text</script>',
+              validation_json: JSON.stringify({ outcome: 'extracted', message: 'ignored untrusted message' }),
+              result_status: 'needs_review',
+              created_at: new Date()
+            }] : [] };
+            throw new Error(`Unexpected read SQL: ${statement}`);
+          }
+        };
+      }
+    };
+    const service = createDocumentService({ getPool: async () => pool, sql: fakeSql() });
+    return { result: await service.getDocument(7, '88'), queries };
+  }
+
+  const student = await readAsRole('student');
+  assert.equal(student.result.validation, null);
+  assert.equal(student.queries.some(({ statement }) => statement.includes('FROM dbo.document_validations')), false);
+
+  const registrar = await readAsRole('registrar');
+  assert.equal(registrar.result.validation.extracted_text, '<script>unsafe OCR text</script>');
+  assert.equal(registrar.result.validation.message, 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.');
+  const validationQuery = registrar.queries.find(({ statement }) => statement.includes('FROM dbo.document_validations'));
+  assert.ok(validationQuery);
+  assert.match(validationQuery.statement, /id = @actorId AND is_active = 1 AND role IN \('registrar', 'database_admin'\)/);
+  assert.equal(validationQuery.values.actorId, 7);
+
+  const revokedRegistrar = await readAsRole('registrar', { deactivateAfterDocumentRead: true });
+  assert.equal(revokedRegistrar.result.validation, null, 'active-role recheck prevents OCR text disclosure after access is revoked');
+});
+
 test('failed document insert, audit, or transaction commit removes an unreferenced private file', async () => {
   for (const failAt of ['insert', 'audit', 'commit']) {
     const directory = await temporaryDirectory();
@@ -266,7 +338,7 @@ test('registrar can upload restricted document types and record correction/revie
     await reviewService.addReviewEvent(7, '12', 'correction_requested', 'Upload a clearer report card.');
     assert.equal(reviewHarness.state.events[0].values.reviewerId, 7);
     assert.equal(reviewHarness.state.events[0].values.instruction, 'Upload a clearer report card.');
-    assert.ok(reviewHarness.state.queries.some(({ statement }) => statement.includes("SET status = 'needs_review'")));
+    assert.ok(reviewHarness.state.queries.some(({ statement }) => statement.includes("SET status = CASE WHEN status = 'processing' THEN status ELSE 'needs_review' END")));
     assert.equal(reviewHarness.state.audit.values.action, 'registrar.document_correction_requested');
     assert.equal(reviewHarness.state.audit.values.detailsJson.includes('clearer'), false);
 
@@ -354,6 +426,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     is_active: true
   }));
   const calls = [];
+  const processingCalls = [];
   const documentService = {
     async listDocuments(actorId) {
       calls.push(['list', actorId]);
@@ -365,7 +438,11 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     },
     async upload(actorId, body, file) {
       calls.push(['upload', actorId, body.documentType, file?.originalname]);
-      return { id: 15 };
+      return { id: actorId === 1 ? 15 : 18 };
+    },
+    async reupload(actorId, documentId, file) {
+      calls.push(['reupload', actorId, documentId, file?.originalname]);
+      return { id: actorId === 1 ? 17 : 19 };
     },
     async getDocument(actorId, documentId) {
       calls.push(['detail', actorId, documentId]);
@@ -378,6 +455,13 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
         status: 'needs_review', supersedes_document_id: null, created_at: new Date(),
         history: [{ id: Number(documentId), original_filename: 'moral.pdf', status: 'needs_review', supersedes_document_id: null, created_at: new Date() }],
         reviewEvents: [{ id: 1, action_type: 'correction_requested', instruction: 'Upload a clearer file <script>alert(1)</script>', created_at: new Date(), reviewer_name: 'Registrar' }],
+        validation: actorId === 1 ? null : {
+          processor: 'Google Document AI',
+          extracted_text: '<img src=x onerror=alert(1)>',
+          result_status: 'needs_review',
+          created_at: new Date(),
+          message: 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'
+        },
         isStaff: actorId !== 1
       };
     }
@@ -385,7 +469,10 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
   const app = createApp({
     databasePool: authPool(users),
     environment: { nodeEnv: 'development', devPasswordOnlyLogin: true, sessionSecret: 'phase-eight-document-http-test-secret' },
-    documentService
+    documentService,
+    documentProcessingService: {
+      async processPendingDocument(documentId) { processingCalls.push(documentId); }
+    }
   });
 
   await withServer(app, async (baseUrl) => {
@@ -415,13 +502,24 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.equal(acceptedWrite.status, 303);
     assert.equal(acceptedWrite.headers.get('location'), '/documents/15?notice=uploaded');
     assert.equal(calls.some(([action, actorId, type, filename]) => action === 'upload' && actorId === 1 && type === 'report_card' && filename === 'report.pdf'), true);
+    assert.deepEqual(processingCalls, [15], 'student initial upload starts its own OCR run');
 
     const studentDetail = await fetch(`${baseUrl}/documents/15`, { headers: { cookie: studentCookie } });
     const studentDetailHtml = await studentDetail.text();
     assert.equal(studentDetail.status, 200);
     assert.match(studentDetailHtml, /Upload a clearer file &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.match(studentDetailHtml, /action="\/documents\/15\/reupload"/);
-    assert.doesNotMatch(studentDetailHtml, /opaque-stored-name|extracted text|OCR output/i);
+    assert.doesNotMatch(studentDetailHtml, /opaque-stored-name|extracted text|OCR output|img src=x onerror/i);
+
+    const studentCorrection = new FormData();
+    studentCorrection.set('_csrf', csrfFromHtml(studentDetailHtml));
+    studentCorrection.set('document', new Blob([Buffer.from('%PDF-1.7\ncorrected')], { type: 'application/pdf' }), 'corrected.pdf');
+    const correctedStudentWrite = await fetch(`${baseUrl}/documents/15/reupload`, {
+      method: 'POST', headers: { cookie: studentCookie }, body: studentCorrection, redirect: 'manual'
+    });
+    assert.equal(correctedStudentWrite.status, 303);
+    assert.equal(correctedStudentWrite.headers.get('location'), '/documents/17?notice=uploaded');
+    assert.equal(processingCalls.at(-1), 17, 'student correction starts a distinct OCR run');
 
     const financeCookie = await login(baseUrl, 'finance@example.edu');
     const beforeDeniedList = calls.filter(([action]) => action === 'list').length;
@@ -431,7 +529,19 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     const registrarCookie = await login(baseUrl, 'registrar@example.edu');
     const staffPage = await fetch(`${baseUrl}/documents/students/44`, { headers: { cookie: registrarCookie } });
     assert.equal(staffPage.status, 200);
-    assert.match(await staffPage.text(), /PSA birth certificate/);
+    const staffPageHtml = await staffPage.text();
+    assert.match(staffPageHtml, /PSA birth certificate/);
+
+    const staffUpload = new FormData();
+    staffUpload.set('_csrf', csrfFromHtml(staffPageHtml));
+    staffUpload.set('documentType', 'form_137');
+    staffUpload.set('document', new Blob([Buffer.from('%PDF-1.7\nstaff source')], { type: 'application/pdf' }), 'form-137.pdf');
+    const acceptedStaffWrite = await fetch(`${baseUrl}/documents/students/44`, {
+      method: 'POST', headers: { cookie: registrarCookie }, body: staffUpload, redirect: 'manual'
+    });
+    assert.equal(acceptedStaffWrite.status, 303);
+    assert.equal(acceptedStaffWrite.headers.get('location'), '/documents/students/44?notice=uploaded');
+    assert.equal(processingCalls.at(-1), 18, 'staff initial upload starts its own OCR run');
 
     const restrictedStaffDetail = await fetch(`${baseUrl}/documents/16`, { headers: { cookie: registrarCookie } });
     const restrictedStaffDetailHtml = await restrictedStaffDetail.text();
@@ -439,6 +549,15 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.match(restrictedStaffDetailHtml, /Students cannot re-upload Form 137 or PSA birth certificates, so staff must supply corrections/);
     assert.match(restrictedStaffDetailHtml, /action="\/documents\/16\/reupload"/);
     assert.doesNotMatch(restrictedStaffDetailHtml, /Follow the instruction from staff, then upload the corrected file as a new submission/);
+    const correctedStaffUpload = new FormData();
+    correctedStaffUpload.set('_csrf', csrfFromHtml(restrictedStaffDetailHtml));
+    correctedStaffUpload.set('document', new Blob([Buffer.from('%PDF-1.7\nstaff correction')], { type: 'application/pdf' }), 'corrected-137.pdf');
+    const correctedStaffWrite = await fetch(`${baseUrl}/documents/16/reupload`, {
+      method: 'POST', headers: { cookie: registrarCookie }, body: correctedStaffUpload, redirect: 'manual'
+    });
+    assert.equal(correctedStaffWrite.status, 303);
+    assert.equal(correctedStaffWrite.headers.get('location'), '/documents/19?notice=uploaded');
+    assert.equal(processingCalls.at(-1), 19, 'staff linked correction starts its own OCR run');
     assert.equal(calls.some(([action, actorId, studentId]) => action === 'student' && actorId === 2 && studentId === 44), true);
 
     const staffDetail = await fetch(`${baseUrl}/documents/15`, { headers: { cookie: registrarCookie } });
@@ -446,6 +565,8 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.equal(staffDetail.status, 200);
     assert.match(staffDetailHtml, /action="\/documents\/15\/review"/);
     assert.match(staffDetailHtml, /action="\/documents\/15\/correction"/);
+    assert.match(staffDetailHtml, /&lt;img src=x onerror=alert\(1\)&gt;/);
+    assert.doesNotMatch(staffDetailHtml, /<img src=x onerror=alert\(1\)>/);
     assert.doesNotMatch(staffDetailHtml, /opaque-stored-name/);
 
     const privateStatic = await fetch(`${baseUrl}/storage/uploads/anything.pdf`);

@@ -48,7 +48,7 @@ async function verifyPassword(user, password, comparePassword = bcrypt.compare) 
   return Boolean(active && passwordMatches);
 }
 
-function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService, academicRecordsService, financeService, documentService } = {}) {
+function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment = defaultEnvironment, twoFactorService = twoFactor, adminService, studentRecordsService, academicRecordsService, financeService, documentService, documentProcessingService } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth({ getPool, sql, environment });
   const recordsService = studentRecordsService || createStudentRecordsService({ getPool, sql });
@@ -118,7 +118,7 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
   router.use('/admin', requireAuth, requireRole('database_admin'), createAdminRouter({ getPool, sql, adminService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createStudentRecordsRouter({ getPool, sql, studentRecordsService: recordsService }));
   router.use('/records', requireAuth, requireRole('database_admin', 'registrar'), createAcademicRecordsRouter({ getPool, sql, academicRecordsService: academicsService }));
-  router.use('/documents', requireAuth, createDocumentsRouter({ getPool, sql, environment, documentService }));
+  router.use('/documents', requireAuth, createDocumentsRouter({ getPool, sql, environment, documentService, documentProcessingService }));
 
   router.get('/', (req, res) => {
     res.render('home', { title: 'ARKTIESIIS' });

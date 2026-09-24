@@ -4,9 +4,9 @@ async function checkDatabase() {
   try {
     const pool = await getPool();
     const result = await pool.request()
-      .query("SELECT [version] FROM dbo.schema_migrations WHERE [version] IN ('001', '002', '003')");
+      .query("SELECT [version] FROM dbo.schema_migrations WHERE [version] IN ('001', '002', '003', '004')");
     const versions = new Set(result.recordset.map(({ version }) => version));
-    const missingVersions = ['001', '002', '003'].filter((version) => !versions.has(version));
+    const missingVersions = ['001', '002', '003', '004'].filter((version) => !versions.has(version));
 
     if (missingVersions.length > 0) {
       console.error(`Database is reachable, but required schema migration(s) ${missingVersions.join(', ')} are not installed.`);
@@ -14,9 +14,9 @@ async function checkDatabase() {
       return;
     }
 
-    console.log('Database connectivity and schema migrations 001, 002, and 003 verified.');
+    console.log('Database connectivity and schema migrations 001, 002, 003, and 004 verified.');
   } catch {
-    console.error('Database check failed. Confirm the database settings, connectivity, and schema migrations 001, 002, and 003.');
+    console.error('Database check failed. Confirm the database settings, connectivity, and schema migrations 001, 002, 003, and 004.');
     process.exitCode = 1;
   } finally {
     try {

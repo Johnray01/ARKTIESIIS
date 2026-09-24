@@ -14,6 +14,16 @@ const MIME_BY_EXTENSION = new Map([
   ['.png', 'image/png']
 ]);
 const STORED_NAME_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|jpg|jpeg|png)$/i;
+const OCR_MESSAGES = new Map([
+  ['extracted', 'OCR text was extracted. Required-field and format checks are not configured; staff review is required.'],
+  ['empty_ocr', 'No readable text was extracted. Staff review is required.'],
+  ['malformed_response', 'The OCR service returned an unreadable result. Staff review is required.'],
+  ['processor_not_configured', 'Document processing is not configured. Staff review is required.'],
+  ['processor_timeout', 'OCR processing timed out. Staff review is required.'],
+  ['processing_recovered', 'OCR processing did not finish within the recovery window. Staff review is required.'],
+  ['stored_file_unavailable', 'The stored file could not be read. Staff review is required.'],
+  ['processor_error', 'The OCR service could not process this file. Staff review is required.']
+]);
 
 class DocumentServiceError extends Error {
   constructor(message, status = 400) {
@@ -427,7 +437,18 @@ function createDocumentService({
     const document = documentResult.recordset?.[0];
     if (!document) return null;
 
-    const [historyResult, eventsResult] = await Promise.all([
+    const validationPromise = STAFF_ROLES.has(actor.role)
+      ? pool.request()
+        .input('documentId', sql.Int, documentId)
+        .input('actorId', sql.Int, actor.id)
+        .query(`SELECT TOP (1) id, processor, extracted_text, validation_json, result_status, created_at
+          FROM dbo.document_validations
+          WHERE document_id = @documentId
+            AND EXISTS (SELECT 1 FROM dbo.users
+              WHERE id = @actorId AND is_active = 1 AND role IN ('registrar', 'database_admin'))
+          ORDER BY created_at DESC, id DESC`)
+      : Promise.resolve({ recordset: [] });
+    const [historyResult, eventsResult, validationResult] = await Promise.all([
       pool.request()
         .input('studentId', sql.Int, document.student_id)
         .input('documentType', sql.NVarChar(50), document.document_type)
@@ -440,12 +461,32 @@ function createDocumentService({
             e.reviewer_id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(p.first_name, N' ', p.last_name))), N''), CONCAT(N'Staff ', e.reviewer_id)) AS reviewer_name
           FROM dbo.document_review_events AS e
           LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.reviewer_id
-          WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`)
+          WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`),
+      validationPromise
     ]);
+    const validationRow = validationResult.recordset?.[0];
+    let validation = null;
+    if (validationRow) {
+      let outcome = null;
+      try {
+        outcome = JSON.parse(validationRow.validation_json)?.outcome;
+      } catch {
+        // Ignore malformed stored summaries and use a fixed safe fallback.
+      }
+      validation = {
+        id: validationRow.id,
+        processor: validationRow.processor,
+        extracted_text: validationRow.extracted_text,
+        result_status: validationRow.result_status,
+        created_at: validationRow.created_at,
+        message: OCR_MESSAGES.get(outcome) || 'A processing result is available for staff review.'
+      };
+    }
     return {
       ...document,
       history: historyResult.recordset || [],
       reviewEvents: eventsResult.recordset || [],
+      validation,
       isStaff: STAFF_ROLES.has(actor.role)
     };
   }
@@ -478,7 +519,9 @@ function createDocumentService({
           VALUES (@documentId, @reviewerId, @actionType, @instruction)`);
       await transaction.request()
         .input('documentId', sql.Int, documentId)
-        .query("UPDATE dbo.documents SET status = 'needs_review' WHERE id = @documentId");
+        .query(`UPDATE dbo.documents
+          SET status = CASE WHEN status = 'processing' THEN status ELSE 'needs_review' END
+          WHERE id = @documentId`);
       await writeAudit(transaction, {
         actor,
         action: action === 'correction_requested' ? 'correction_requested' : 'review_handoff',

@@ -34,6 +34,19 @@ function parseUploadMegabytes(value) {
   return megabytes;
 }
 
+function parseDocumentAITimeout(value) {
+  const rawValue = value === undefined || value === '' ? '30000' : String(value);
+  if (!/^\d+$/.test(rawValue)) {
+    throw new Error('DOCUMENT_AI_TIMEOUT_MS must be an integer between 1000 and 120000.');
+  }
+
+  const timeoutMs = Number(rawValue);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) {
+    throw new Error('DOCUMENT_AI_TIMEOUT_MS must be an integer between 1000 and 120000.');
+  }
+  return timeoutMs;
+}
+
 const configuredSessionSecret = process.env.SESSION_SECRET;
 const normalizedSessionSecret = configuredSessionSecret?.trim();
 if (nodeEnv === 'production') {
@@ -67,7 +80,8 @@ module.exports = {
   documentAI: {
     projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
     location: process.env.GOOGLE_CLOUD_LOCATION || 'us',
-    processorId: process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID
+    processorId: process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID,
+    timeoutMs: parseDocumentAITimeout(process.env.DOCUMENT_AI_TIMEOUT_MS)
   },
   upload: {
     maxMb: parseUploadMegabytes(process.env.MAX_UPLOAD_MB),

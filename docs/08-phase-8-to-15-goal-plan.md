@@ -4,10 +4,10 @@ The development roadmap marks Phases 1–7 complete. This plan is split into two
 
 ## Current repository state
 
-- `database/schema.sql` already defines `documents` and `document_validations`, the four approved document types, file metadata, uploader, processing/review fields, and status constraints. The baseline is version `001`; migrations `002` and `003` add two-factor limits and document revision/review-event support. Schema changes use new numbered, forward-only migrations.
-- `src/config/environment.js` already reads the Google Document AI processor settings and `MAX_UPLOAD_MB` (default 10 MB).
-- `src/config/documentAI.js` configures the Document AI client and processor resource name. `src/services/documentAIService.js` sends a local file to the configured processor. `src/services/documentValidationService.js` has a basic required-text helper.
-- Phase 8 connects upload, authorized private download, per-student document history, immutable corrected re-upload, review handoff, and correction requests. OCR/Document AI integration and institution-approved validation rules remain future phase work.
+- `database/schema.sql` already defines `documents` and `document_validations`, the four approved document types, file metadata, uploader, processing/review fields, and status constraints. The baseline is version `001`; migrations `002` and `003` add two-factor limits and document revision/review-event support. The pending migration `004` adds the processing lease timestamp/index used by stale OCR recovery. Schema changes use new numbered, forward-only migrations.
+- `src/config/environment.js` reads the Google Document AI project, location, processor, and bounded request timeout settings along with `MAX_UPLOAD_MB` (default 10 MB).
+- `src/config/documentAI.js` configures the regional Document AI client endpoint and processor resource name. `src/services/documentAIService.js` sends a securely opened private file to the configured processor. `src/services/documentProcessingService.js` claims each pending immutable submission, applies bounded provider timeouts, recovers stale processing leases to a safe failed result, normalizes OCR outcomes, and stores a per-submission result. `src/server.js` starts the bounded recovery scan after database connection and repeats it periodically. `src/services/documentValidationService.js` has a basic required-text helper; it is not yet wired to institution-approved rules.
+- Phase 8 connects upload, authorized private download, per-student document history, immutable corrected re-upload, review handoff, and correction requests. Phase 9 connects OCR and staff-only extraction display. Phase 10 institution-approved validation rules remain future work.
 - The existing role, CSRF, SQL, and audit patterns in the application should be followed. Do not change the one-time schema baseline to update an initialized database.
 
 ## Role and document access matrix

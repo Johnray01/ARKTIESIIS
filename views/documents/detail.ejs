@@ -15,7 +15,7 @@
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
   <section class="admin-section" aria-labelledby="submission-title">
-    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p>The uploader selected the document type. Automated validation is not part of this page.</p></div></div>
+    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p>The uploader selected the document type. OCR extracts text only; required-field and format checks are not configured yet.</p></div></div>
     <dl class="student-profile-grid">
       <div><dt>File name</dt><dd><%= document.original_filename %></dd></div>
       <div><dt>File type</dt><dd><%= document.mime_type %></dd></div>
@@ -25,6 +25,23 @@
       <div><dt>Submission version</dt><dd><%= document.supersedes_document_id ? `Corrected from submission #${document.supersedes_document_id}` : 'Original submission' %></dd></div>
     </dl>
   </section>
+
+  <% if (isStaff) { %>
+    <section class="admin-section" aria-labelledby="ocr-result-title">
+      <div class="admin-section__heading"><div><h2 id="ocr-result-title">OCR result</h2><p>Extracted text is restricted to registrar and database administrator users. OCR does not determine document authenticity.</p></div></div>
+      <% if (document.validation) { %>
+        <p class="form-alert" role="status"><%= document.validation.message %></p>
+        <dl class="student-profile-grid">
+          <div><dt>Processing result</dt><dd><%= document.validation.result_status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></dd></div>
+          <div><dt>Processor</dt><dd><%= document.validation.processor %></dd></div>
+          <div><dt>Processed</dt><dd><%= document.validation.created_at ? new Date(document.validation.created_at).toLocaleString() : '—' %></dd></div>
+        </dl>
+        <% if (document.validation.extracted_text) { %>
+          <details class="document-extracted-text"><summary>Show extracted text</summary><pre><%= document.validation.extracted_text %></pre></details>
+        <% } %>
+      <% } else { %><p class="empty-state">No OCR result has been recorded for this submission.</p><% } %>
+    </section>
+  <% } %>
 
   <% if (isStaff) { %>
     <section class="admin-section" aria-labelledby="review-actions-title">
