@@ -72,8 +72,26 @@ function advisoryChecks(documentType, extractedText, student) {
   return checks;
 }
 
+function form137AdvisoryChecks(extractedText, student) {
+  const possibleSchoolNames = findPossibleSchoolNames(extractedText);
+  return [
+    {
+      key: 'linked_student_name',
+      label: 'Linked student name appears in the scanned text',
+      found: linkedStudentNameFound(extractedText, student)
+    },
+    {
+      key: 'possible_school_name',
+      label: 'Possible school name',
+      found: possibleSchoolNames.length > 0,
+      candidates: possibleSchoolNames
+    }
+  ];
+}
+
 module.exports = {
   advisoryChecks,
+  form137AdvisoryChecks,
   validateRequiredText,
   linkedStudentNameFound,
   possibleSchoolNameFound,

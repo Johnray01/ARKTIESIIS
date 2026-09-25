@@ -8,11 +8,11 @@
     <a class="button button--secondary" href="/documents">All documents</a>
   </section>
 
-  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (notice) { %><p class="form-success" role="status"><%= notice === 'form137StatusRecorded' ? 'Form 137 status recorded.' : notice %></p><% } %>
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
   <section class="admin-section" aria-labelledby="form137-status-title">
-    <div class="admin-section__heading"><div><h2 id="form137-status-title">Form 137 physical record</h2><p>Track receipt and review of the physical Form 137. This workflow does not accept a file or run OCR.</p></div></div>
+    <div class="admin-section__heading"><div><h2 id="form137-status-title">Form 137 physical record</h2><p>Scanning sends the paper's file bytes to this server for temporary local OCR. The temporary file is deleted after processing; neither the scan nor extracted OCR text is stored in the document record or database. Only the human-recorded status and instruction are saved. Inspect the physical paper before deciding.</p></div></div>
     <p><strong>Current status:</strong> <%= form137Status.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></p>
     <% if (form137Status.instruction) { %><p class="form-alert" role="status"><%= form137Status.instruction %></p><% } %>
     <% if (form137Status.created_at) { %><p class="muted-copy">Updated <%= new Date(form137Status.created_at).toLocaleString() %></p><% } %>
@@ -35,6 +35,24 @@
       </div>
       <p class="muted-copy">An instruction is required when choosing “Correction needed.”</p>
       <button class="button button--secondary button--align-start" type="submit">Save Form 137 status</button>
+    </form>
+    <% if (form137Scan) { %>
+      <section class="admin-section" aria-labelledby="form137-scan-result-title">
+        <div class="admin-section__heading"><div><h3 id="form137-scan-result-title">Temporary OCR suggestions</h3><p>These suggestions come from this scan response only. They do not prove authenticity, completeness, or acceptance. Inspect the paper original and record a human status above.</p></div></div>
+        <% if (form137Scan.status === 'completed') { %><p class="form-success" role="status"><%= form137Scan.message %></p>
+          <ul class="document-review-history"><% for (const suggestion of form137Scan.suggestions) { %><li>
+            <strong><%= suggestion.label %></strong>
+            <span><%= suggestion.found ? 'Possible text identified' : 'Possible text not identified' %></span>
+            <% if (suggestion.candidates?.length) { %><ul><% for (const candidate of suggestion.candidates) { %><li><%= candidate %></li><% } %></ul><% } %>
+          </li><% } %></ul>
+        <% } else { %><p class="form-alert" role="status"><%= form137Scan.message %></p><% } %>
+      </section>
+    <% } %>
+    <form class="form-stack document-upload-form" method="post" action="/documents/students/<%= student.id %>/form137-scan" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="field"><label for="form137-scan-file">Temporary scan of the physical Form 137</label><input id="form137-scan-file" name="form137Scan" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required></div>
+      <p class="muted-copy">Accepted formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB. A PDF may contain up to <%= typeof ocrMaxPdfPages === 'number' ? ocrMaxPdfPages : 20 %> pages.</p>
+      <button class="button button--secondary button--align-start" type="submit">Scan temporarily for suggestions</button>
     </form>
   </section>
 

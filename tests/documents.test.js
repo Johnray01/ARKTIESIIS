@@ -112,7 +112,7 @@ function serviceWithStorage(harness, storageDirectory, fileSystem, logger) {
   });
 }
 
-test('student upload derives the linked student record, uses opaque private storage, and audits without file contents', async () => {
+test('student upload derives the linked student record, checks private storage permissions where supported, and audits without file contents', async () => {
   const directory = await temporaryDirectory();
   try {
     const harness = transactionHarness();
@@ -132,12 +132,20 @@ test('student upload derives the linked student record, uses opaque private stor
     assert.equal(harness.state.audit.values.detailsJson.includes('example'), false);
     const storedPath = path.join(directory, insert.values.storedFilename);
     assert.equal((await fs.readFile(storedPath)).toString(), '%PDF-1.7\nexample');
-    assert.equal((await fs.stat(storedPath)).mode & 0o777, 0o600);
-    assert.equal((await fs.stat(directory)).mode & 0o777, 0o700);
+    // Windows uses ACLs; Node's chmod mode does not expose owner/group/other privacy bits.
+    if (process.platform !== 'win32') {
+      assert.equal((await fs.stat(storedPath)).mode & 0o777, 0o600);
+      assert.equal((await fs.stat(directory)).mode & 0o777, 0o700);
+    }
     assert.match(path.relative(directory, storedPath), /^[-0-9a-f]+\.pdf$/i);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
+});
+
+test('document storage rejects a location inside the public web directory', () => {
+  const publicStorageDirectory = path.resolve(__dirname, '../public/private-uploads');
+  assert.throws(() => createDocumentService({ storageDirectory: publicStorageDirectory }), /outside the public web directory/);
 });
 
 test('Form 137 cannot be uploaded and students cannot access an unlinked account', async () => {
@@ -433,6 +441,12 @@ test('registrar and database administrator can only set Form 137 physical status
   assert.equal(registrar.state.audit.values.action, 'registrar.form137_status_recorded');
   assert.equal(registrar.state.audit.values.detailsJson.includes('clearer paper copy'), false);
 
+  const verifiedAfterScanFailure = transactionHarness({ actorRole: 'registrar' });
+  await verifiedAfterScanFailure.service.recordForm137Status(7, '44', 'verified', '');
+  assert.equal(verifiedAfterScanFailure.state.form137Statuses[0].values.status, 'verified');
+  assert.equal(verifiedAfterScanFailure.state.form137Statuses[0].values.instruction, null);
+  assert.equal(verifiedAfterScanFailure.state.inserted.length, 0, 'a physical status decision stores no scan or OCR record');
+
   const missingInstruction = transactionHarness({ actorRole: 'database_admin' });
   await assert.rejects(missingInstruction.service.recordForm137Status(7, '44', 'correction'), /instruction when requesting/);
   assert.equal(missingInstruction.state.form137Statuses.length, 0);
@@ -582,6 +596,9 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
   }));
   const calls = [];
   const processingCalls = [];
+  const scanCalls = [];
+  const uploadedBuffers = [];
+  const scanBuffers = [];
   const documentService = {
     async listDocuments(actorId) {
       calls.push(['list', actorId]);
@@ -600,6 +617,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     async upload(actorId, body, file) {
       if (body.documentType === 'form_137') throw new DocumentServiceError('Form 137 is tracked as a physical status only.');
       if (actorId === 1 && !['good_moral', 'report_card'].includes(body.documentType)) throw new DocumentServiceError('Students may upload only Good Moral Certificates and report cards.', 403);
+      if (Buffer.isBuffer(file?.buffer)) uploadedBuffers.push(file.buffer);
       calls.push(['upload', actorId, body.documentType, file?.originalname]);
       return { id: actorId === 1 ? 15 : 18 };
     },
@@ -652,6 +670,23 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     documentService,
     documentProcessingService: {
       schedulePendingProcessing() { processingCalls.push('scheduled'); }
+    },
+    form137ScanService: {
+      async scan(actorId, studentId, file) {
+        if (Buffer.isBuffer(file?.buffer)) scanBuffers.push(file.buffer);
+        scanCalls.push(['scan', actorId, studentId, file?.originalname]);
+        if (scanCalls.length === 1) {
+          return {
+            status: 'completed',
+            message: 'OCR suggestions are ready for staff inspection.',
+            suggestions: [
+              { key: 'linked_student_name', label: 'Linked student name appears in the scanned text', found: true },
+              { key: 'possible_school_name', label: 'Possible school name', found: true, candidates: ['Academy <script>alert(1)</script>'] }
+            ]
+          };
+        }
+        return { status: 'failed', message: 'The local OCR scan timed out. Inspect the physical paper and record its status manually.', suggestions: [] };
+      }
     }
   });
 
@@ -667,6 +702,13 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.doesNotMatch(studentHtml, /option value="form_137"|option value="psa_birth_certificate"/);
     assert.doesNotMatch(studentHtml, /OCR output|extracted text/i);
     assert.equal((await fetch(`${baseUrl}/documents/students/44`, { headers: { cookie: studentCookie } })).status, 403);
+    const studentScan = new FormData();
+    studentScan.set('_csrf', csrfFromHtml(studentHtml));
+    studentScan.set('form137Scan', new Blob([Buffer.from('%PDF-1.7\nphysical paper')], { type: 'application/pdf' }), 'physical.pdf');
+    assert.equal((await fetch(`${baseUrl}/documents/students/44/form137-scan`, {
+      method: 'POST', headers: { cookie: studentCookie }, body: studentScan, redirect: 'manual'
+    })).status, 403);
+    assert.equal(scanCalls.length, 0, 'students cannot invoke the temporary scan service');
 
     const missingCsrfForm = new FormData();
     missingCsrfForm.set('_csrf', 'wrong');
@@ -684,6 +726,7 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.equal(acceptedWrite.status, 303);
     assert.equal(acceptedWrite.headers.get('location'), '/documents/15?notice=uploaded');
     assert.equal(calls.some(([action, actorId, type, filename]) => action === 'upload' && actorId === 1 && type === 'report_card' && filename === 'report.pdf'), true);
+    assert.ok(uploadedBuffers[0].every((byte) => byte === 0), 'the upload route clears the multipart buffer after the service returns');
     assert.deepEqual(processingCalls, ['scheduled'], 'student upload schedules background OCR');
 
     const studentDetail = await fetch(`${baseUrl}/documents/15`, { headers: { cookie: studentCookie } });
@@ -715,6 +758,12 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     const beforeDeniedList = calls.filter(([action]) => action === 'list').length;
     assert.equal((await fetch(`${baseUrl}/documents`, { headers: { cookie: financeCookie } })).status, 403);
     assert.equal(calls.filter(([action]) => action === 'list').length, beforeDeniedList);
+    const financeScan = new FormData();
+    financeScan.set('form137Scan', new Blob([Buffer.from('%PDF-1.7\nphysical paper')], { type: 'application/pdf' }), 'physical.pdf');
+    assert.equal((await fetch(`${baseUrl}/documents/students/44/form137-scan`, {
+      method: 'POST', headers: { cookie: financeCookie }, body: financeScan, redirect: 'manual'
+    })).status, 403);
+    assert.equal(scanCalls.length, 0, 'finance cannot invoke the temporary scan service');
 
     const registrarCookie = await login(baseUrl, 'registrar@example.edu');
     const staffPage = await fetch(`${baseUrl}/documents/students/44`, { headers: { cookie: registrarCookie } });
@@ -724,15 +773,56 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.doesNotMatch(staffPageHtml, /option value="form_137"/);
     assert.match(staffPageHtml, /option value="psa_birth_certificate"/);
     assert.match(staffPageHtml, /Not recorded/);
+    assert.match(staffPageHtml, /form137-scan/);
+    assert.match(staffPageHtml, /temporary file is deleted after processing/);
+
+    const deniedCsrfScan = new FormData();
+    deniedCsrfScan.set('_csrf', 'wrong');
+    deniedCsrfScan.set('form137Scan', new Blob([Buffer.from('%PDF-1.7\nphysical paper')], { type: 'application/pdf' }), 'physical.pdf');
+    const deniedScan = await fetch(`${baseUrl}/documents/students/44/form137-scan`, {
+      method: 'POST', headers: { cookie: registrarCookie }, body: deniedCsrfScan, redirect: 'manual'
+    });
+    assert.equal(deniedScan.status, 403);
+    assert.match(deniedScan.headers.get('cache-control'), /no-store/);
+    assert.equal(scanCalls.length, 0, 'CSRF failure prevents OCR');
+
+    const staffScan = new FormData();
+    staffScan.set('_csrf', csrfFromHtml(staffPageHtml));
+    staffScan.set('form137Scan', new Blob([Buffer.from('%PDF-1.7\nphysical paper')], { type: 'application/pdf' }), 'physical.pdf');
+    const scanResponse = await fetch(`${baseUrl}/documents/students/44/form137-scan`, {
+      method: 'POST', headers: { cookie: registrarCookie }, body: staffScan, redirect: 'manual'
+    });
+    const scanHtml = await scanResponse.text();
+    assert.equal(scanResponse.status, 200);
+    assert.match(scanResponse.headers.get('cache-control'), /private, no-store/);
+    assert.equal(scanResponse.headers.get('pragma'), 'no-cache');
+    assert.match(scanHtml, /Temporary OCR suggestions/);
+    assert.match(scanHtml, /Academy &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(scanHtml, /Academy <script>alert\(1\)<\/script>/);
+    assert.deepEqual(scanCalls[0], ['scan', 2, 44, 'physical.pdf']);
+    assert.ok(scanBuffers[0].every((byte) => byte === 0), 'the scan route clears the multipart buffer after the scan service returns');
+
+    const failedScan = new FormData();
+    failedScan.set('_csrf', csrfFromHtml(scanHtml));
+    failedScan.set('form137Scan', new Blob([Buffer.from('%PDF-1.7\nphysical paper')], { type: 'application/pdf' }), 'physical.pdf');
+    const failedScanResponse = await fetch(`${baseUrl}/documents/students/44/form137-scan`, {
+      method: 'POST', headers: { cookie: registrarCookie }, body: failedScan, redirect: 'manual'
+    });
+    const failedScanHtml = await failedScanResponse.text();
+    assert.equal(failedScanResponse.status, 200);
+    assert.match(failedScanResponse.headers.get('cache-control'), /no-store/);
+    assert.match(failedScanHtml, /OCR scan timed out/);
+    assert.match(failedScanHtml, /Save Form 137 status/);
+    assert.deepEqual(scanCalls[1], ['scan', 2, 44, 'physical.pdf']);
 
     const statusWrite = await fetch(`${baseUrl}/documents/students/44/form137-status`, {
       method: 'POST',
       headers: { cookie: registrarCookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ _csrf: csrfFromHtml(staffPageHtml), status: 'received', instruction: '' }),
+      body: new URLSearchParams({ _csrf: csrfFromHtml(failedScanHtml), status: 'verified', instruction: '' }),
       redirect: 'manual'
     });
     assert.equal(statusWrite.status, 303);
-    assert.equal(calls.some(([action, actorId, studentId, status]) => action === 'form137' && actorId === 2 && studentId === 44 && status === 'received'), true);
+    assert.equal(calls.some(([action, actorId, studentId, status]) => action === 'form137' && actorId === 2 && studentId === 44 && status === 'verified'), true);
     assert.equal(processingCalls.length, 2, 'physical status updates do not schedule OCR');
 
     const staffUpload = new FormData();

@@ -4,6 +4,8 @@ const { ensureCsrfToken, hasValidCsrfToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { DocumentServiceError, createDocumentService, normalizeId } = require('../services/documentService');
 const { createDocumentProcessingService } = require('../services/documentProcessingService');
+const { createLocalOcrService } = require('../services/localOcrService');
+const { Form137ScanError, createForm137ScanService } = require('../services/form137ScanService');
 
 const STAFF_ROLES = ['registrar', 'database_admin'];
 const DOCUMENT_TYPES = [
@@ -36,8 +38,14 @@ function uploadErrorMessage(error) {
   return 'The upload request could not be processed. Check the file and try again.';
 }
 
-function createDocumentsRouter({ getPool, sql, environment, documentService, documentProcessingService } = {}) {
+function clearUploadBuffer(file) {
+  if (Buffer.isBuffer(file?.buffer)) file.buffer.fill(0);
+}
+
+function createDocumentsRouter({ getPool, sql, environment, documentService, documentProcessingService, form137ScanService } = {}) {
   const router = express.Router();
+  const maxUploadBytes = configuredMaxBytes(environment);
+  const uploadMaxMb = configuredMaxMegabytes(environment);
   const service = documentService || createDocumentService({
     getPool,
     sql,
@@ -53,12 +61,21 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     timeoutMs: environment?.ocr?.timeoutMs,
     concurrency: environment?.ocr?.concurrency
   });
-  const maxUploadBytes = configuredMaxBytes(environment);
-  const uploadMaxMb = configuredMaxMegabytes(environment);
+  const scanService = form137ScanService || createForm137ScanService({
+    getStudentDocuments: service.getStudentDocuments,
+    localOcr: createLocalOcrService({ ocrConfig: environment?.ocr, uploadConfig: environment?.upload }),
+    maxUploadBytes,
+    timeoutMs: environment?.ocr?.timeoutMs,
+    concurrency: environment?.ocr?.concurrency
+  });
   const parseSingleUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: maxUploadBytes, files: 1, fields: 5, fieldSize: 2048 }
   }).single('document');
+  const parseSingleForm137Scan = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: maxUploadBytes, files: 1, fields: 5, fieldSize: 2048 }
+  }).single('form137Scan');
 
   router.use(requireRole('student', ...STAFF_ROLES));
 
@@ -75,6 +92,7 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
   function parseUpload(req, res, next) {
     parseSingleUpload(req, res, (error) => {
       if (!error) return next();
+      clearUploadBuffer(req.file);
       return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).render('error', {
         title: 'Upload Error',
         message: uploadErrorMessage(error)
@@ -107,7 +125,7 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
     }
   }
 
-  async function renderStudentDocuments(req, res, studentId, { status = 200, error = null } = {}) {
+  async function renderStudentDocuments(req, res, studentId, { status = 200, error = null, form137Scan = null } = {}) {
     try {
       const workspace = await service.getStudentDocuments(req.authUser.id, studentId);
       if (!workspace) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
@@ -120,11 +138,15 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         documentTypes: STAFF_UPLOAD_DOCUMENT_TYPES,
         form137Status: workspace.form137Status,
         form137StatusHistory: workspace.form137StatusHistory,
+        form137Scan,
+        ocrMaxPdfPages: environment?.ocr?.maxPdfPages,
         uploadMaxMb,
         error,
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
-          : null,
+          : req.query.notice === 'form137StatusRecorded'
+            ? 'Form 137 status recorded.'
+            : null,
         documentTypeLabel
       });
     } catch (loadError) {
@@ -135,15 +157,17 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
   router.get('/', (req, res) => renderDocumentList(req, res));
 
   router.post('/', parseUpload, async (req, res) => {
-    if (!hasValidCsrfToken(req)) {
-      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
-    }
     try {
+      if (!hasValidCsrfToken(req)) {
+        return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+      }
       const result = await service.upload(req.authUser.id, req.body, req.file);
       processingService.schedulePendingProcessing();
       return res.redirect(303, `/documents/${result.id}?notice=uploaded`);
     } catch (error) {
       return renderError(res, error, 'The document could not be uploaded.');
+    } finally {
+      clearUploadBuffer(req.file);
     }
   });
 
@@ -154,12 +178,12 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
   });
 
   router.post('/students/:studentId', requireRole(...STAFF_ROLES), parseUpload, async (req, res) => {
-    if (!hasValidCsrfToken(req)) {
-      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
-    }
     const studentId = normalizeId(req.params.studentId);
-    if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
     try {
+      if (!hasValidCsrfToken(req)) {
+        return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+      }
+      if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
       const result = await service.upload(req.authUser.id, { ...req.body, studentId }, req.file);
       processingService.schedulePendingProcessing();
       return res.redirect(303, `/documents/students/${studentId}?notice=uploaded`);
@@ -168,6 +192,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         return renderStudentDocuments(req, res, studentId, { status: error.status, error: error.message });
       }
       return renderError(res, error, 'The document could not be uploaded.');
+    } finally {
+      clearUploadBuffer(req.file);
     }
   });
 
@@ -185,6 +211,42 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         return renderStudentDocuments(req, res, studentId, { status: error.status, error: error.message });
       }
       return renderError(res, error, 'The Form 137 status could not be saved.');
+    }
+  });
+
+  router.post('/students/:studentId/form137-scan', requireRole(...STAFF_ROLES), (req, res, next) => {
+    parseSingleForm137Scan(req, res, (error) => {
+      res.set('Cache-Control', 'private, no-store');
+      res.set('Pragma', 'no-cache');
+      if (!error) return next();
+      clearUploadBuffer(req.file);
+      const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+      return res.status(status).render('error', {
+        title: 'Form 137 Scan',
+        message: error.code === 'LIMIT_FILE_SIZE'
+          ? 'The selected scan exceeds the configured upload limit.'
+          : 'Choose one PDF, JPEG, or PNG scan file.'
+      });
+    });
+  }, async (req, res) => {
+    res.set('Cache-Control', 'private, no-store');
+    res.set('Pragma', 'no-cache');
+    let studentId = null;
+    try {
+      if (!hasValidCsrfToken(req)) {
+        return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+      }
+      studentId = normalizeId(req.params.studentId);
+      if (!studentId) return res.status(404).render('error', { title: 'Not Found', message: 'Student record not found.' });
+      const result = await scanService.scan(req.authUser.id, studentId, req.file);
+      return renderStudentDocuments(req, res, studentId, { form137Scan: result });
+    } catch (error) {
+      if (error instanceof DocumentServiceError || error instanceof Form137ScanError) {
+        return renderStudentDocuments(req, res, studentId, { status: error.status, error: error.message });
+      }
+      return renderError(res, error, 'The temporary Form 137 scan could not be processed. Inspect the physical paper and record its status manually.');
+    } finally {
+      clearUploadBuffer(req.file);
     }
   });
 
@@ -278,15 +340,17 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
   });
 
   router.post('/:id/reupload', parseUpload, async (req, res) => {
-    if (!hasValidCsrfToken(req)) {
-      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
-    }
     try {
+      if (!hasValidCsrfToken(req)) {
+        return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+      }
       const result = await service.reupload(req.authUser.id, req.params.id, req.file);
       processingService.schedulePendingProcessing();
       return res.redirect(303, `/documents/${result.id}?notice=uploaded`);
     } catch (error) {
       return renderError(res, error, 'The corrected document could not be uploaded.');
+    } finally {
+      clearUploadBuffer(req.file);
     }
   });
 
