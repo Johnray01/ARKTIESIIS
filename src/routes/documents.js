@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { ensureCsrfToken, hasValidCsrfToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
-const { DocumentServiceError, createDocumentService, normalizeId } = require('../services/documentService');
+const { DocumentServiceError, createDocumentService, normalizeId, verificationChecklistItems } = require('../services/documentService');
 const { createDocumentProcessingService } = require('../services/documentProcessingService');
 const { createLocalOcrService } = require('../services/localOcrService');
 const { Form137ScanError, createForm137ScanService } = require('../services/form137ScanService');
@@ -30,6 +30,20 @@ function configuredMaxMegabytes(environment) {
 
 function documentTypeLabel(value) {
   return DOCUMENT_TYPES.find((documentType) => documentType.value === value)?.label || 'Document';
+}
+
+function documentStatusLabel(status, latestDecisionType, latestReviewAction) {
+  if (status === 'valid') return 'Verified after staff source inspection';
+  if (status === 'rejected') return 'Rejected after staff review';
+  if (status === 'failed') return 'OCR could not process; staff review required';
+  if (status === 'pending') return 'Waiting for OCR';
+  if (status === 'processing') return 'OCR processing';
+  if (status === 'needs_review') {
+    return latestDecisionType === 'correction_requested' || latestReviewAction === 'correction_requested'
+      ? 'Correction requested'
+      : 'Awaiting staff review';
+  }
+  return 'Status unavailable';
 }
 
 function uploadErrorMessage(error) {
@@ -118,7 +132,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
           : null,
-        documentTypeLabel
+        documentTypeLabel,
+        documentStatusLabel
       });
     } catch (loadError) {
       return renderError(res, loadError, 'Documents could not be loaded.');
@@ -147,7 +162,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
           : req.query.notice === 'form137StatusRecorded'
             ? 'Form 137 status recorded.'
             : null,
-        documentTypeLabel
+        documentTypeLabel,
+        documentStatusLabel
       });
     } catch (loadError) {
       return renderError(res, loadError, 'Student documents could not be loaded.');
@@ -263,6 +279,8 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
         documentTypes: document.isStaff ? STAFF_UPLOAD_DOCUMENT_TYPES : STUDENT_DOCUMENT_TYPES,
         uploadMaxMb,
         isStaff: document.isStaff,
+        verificationChecklistItems: document.isStaff ? verificationChecklistItems(document.document_type) : [],
+        documentStatusLabel,
         error: null,
         notice: req.query.notice === 'uploaded'
           ? 'Document uploaded.'
@@ -332,7 +350,7 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
       return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
     }
     try {
-      await service.decideDocument(req.authUser.id, req.params.id, req.body?.decision, req.body?.reason);
+      await service.decideDocument(req.authUser.id, req.params.id, req.body?.decision, req.body?.reason, req.body);
       return res.redirect(303, `/documents/${normalizeId(req.params.id)}?notice=decisionRecorded`);
     } catch (error) {
       return renderError(res, error, 'The staff decision could not be saved.');
@@ -357,4 +375,4 @@ function createDocumentsRouter({ getPool, sql, environment, documentService, doc
   return router;
 }
 
-module.exports = { createDocumentsRouter, documentTypeLabel, configuredMaxBytes, configuredMaxMegabytes };
+module.exports = { createDocumentsRouter, documentTypeLabel, documentStatusLabel, configuredMaxBytes, configuredMaxMegabytes };

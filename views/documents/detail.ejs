@@ -17,12 +17,12 @@
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
   <section class="admin-section" aria-labelledby="submission-title">
-    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p><% if (document.document_type === 'form_137') { %>This is a historical Form 137 file. Current Form 137 records use the physical status workflow without uploads or OCR.<% } else { %>The uploader selected the document type. OCR suggestions are advisory, and a registrar or database administrator must inspect the source file before making a decision.<% } %></p></div></div>
+    <div class="admin-section__heading"><div><h2 id="submission-title">Submission</h2><p><% if (document.document_type === 'form_137') { %>This is a historical Form 137 file. New records use a separate physical status workflow; authorized staff may scan the paper for temporary local OCR suggestions. Scans and OCR results are not retained in that workflow.<% } else { %>The uploader selected the document type. OCR suggestions are advisory, and a registrar or database administrator must inspect the source file before making a decision.<% } %></p></div></div>
     <dl class="student-profile-grid">
       <div><dt>File name</dt><dd><%= document.original_filename %></dd></div>
       <div><dt>File type</dt><dd><%= document.mime_type %></dd></div>
       <div><dt>File size</dt><dd><%= (Number(document.file_size_bytes) / 1048576).toFixed(2) %> MB</dd></div>
-      <div><dt>Status</dt><dd><%= document.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></dd></div>
+      <div><dt>Status</dt><dd><%= documentStatusLabel(document.status, latestDecision?.decision_type, document.reviewEvents?.[0]?.action_type) %></dd></div>
       <div><dt>Uploaded</dt><dd><%= document.created_at ? new Date(document.created_at).toLocaleString() : '—' %></dd></div>
       <div><dt>Submission version</dt><dd><%= document.supersedes_document_id ? `Corrected from submission #${document.supersedes_document_id}` : 'Original submission' %></dd></div>
     </dl>
@@ -42,21 +42,21 @@
           <details class="document-extracted-text"><summary>Show extracted text</summary><pre><%= document.validation.extracted_text %></pre></details>
         <% } %>
         <% if (document.validation.advisoryChecks?.length) { %>
-          <div class="admin-section__heading"><div><h3>OCR suggestions for source inspection</h3><p>These checks only point to possible text. They do not establish acceptance or document authenticity.</p></div></div>
+          <div class="admin-section__heading"><div><h3>OCR suggestions for source inspection</h3><p>These checks only point to possible text. The student-name clue compares first and last name text found close together on one OCR line; it does not confirm that the document belongs to the linked student. OCR can omit or misread names, so staff must inspect the source. These checks do not establish acceptance or document authenticity.</p></div></div>
           <ul class="document-review-history"><% for (const check of document.validation.advisoryChecks) { %><li>
-            <strong><%= check.label %></strong><span><%= check.found && (check.key === 'linked_student_name' || check.candidates?.length) ? 'Possible text identified' : 'Possible text not identified' %></span>
+            <strong><%= check.key === 'linked_student_name' ? 'Possible linked student-name match' : check.label %></strong><span><%= check.found && (check.key === 'linked_student_name' || check.candidates?.length) ? 'Possible text identified' : 'Possible text not identified' %></span>
             <% if (check.candidates?.length) { %><ul><% for (const candidate of check.candidates) { %><li><%= candidate %></li><% } %></ul><% } %>
           </li><% } %></ul>
         <% } %>
       <% } else { %><p class="empty-state">No OCR result has been recorded for this submission.</p><% } %>
     </section>
   <% } else if (isStaff) { %>
-    <section class="admin-section"><p class="muted-copy">This historical Form 137 file is available to authorized staff. The physical Form 137 status workflow does not display or create OCR data.</p></section>
+    <section class="admin-section"><p class="muted-copy">This historical Form 137 file is available to authorized staff. Current status history is stored separately; temporary staff scan suggestions are returned only for inspection and are not saved as OCR data.</p></section>
   <% } %>
 
   <% if (isStaff && document.document_type !== 'form_137' && ['needs_review', 'failed'].includes(document.status) && !['verified', 'rejected'].includes(latestDecision?.decision_type)) { %>
     <section class="admin-section" aria-labelledby="review-actions-title">
-      <div class="admin-section__heading"><div><h2 id="review-actions-title">Staff review decision</h2><p>Inspect the source document, then verify it, request a corrected upload, or reject it. <% if (document.validation?.requiresOverrideReason) { %>A reason is required to verify despite an OCR warning or failure.<% } %></p></div></div>
+      <div class="admin-section__heading"><div><h2 id="review-actions-title">Staff review decision</h2><p>Inspect the source document, then complete the checklist to record verification, request a corrected upload, or reject it. The checklist records staff observations and does not determine authenticity. <% if (document.validation?.requiresOverrideReason) { %>A reason is required to verify despite an OCR warning or failure.<% } %></p></div></div>
       <div class="admin-form-grid">
         <form class="form-stack" method="post" action="/documents/<%= document.id %>/review">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -64,8 +64,15 @@
         </form>
         <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="decision" value="verified">
+          <fieldset class="admin-fieldset">
+            <legend>Required source-inspection checklist</legend>
+            <p class="field-help">Check each item only after inspecting the submitted source. OCR suggestions do not complete this checklist.</p>
+            <% for (const item of verificationChecklistItems) { %>
+              <label class="checkbox-field"><input name="<%= item.key %>" value="yes" type="checkbox" required><span><%= item.label %></span></label>
+            <% } %>
+          </fieldset>
           <div class="field"><label for="verify-reason">Verification reason <%= document.validation?.requiresOverrideReason ? '(required for OCR warning or failure)' : '(optional)' %></label><textarea id="verify-reason" name="reason" rows="3" maxlength="1000" <%= document.validation?.requiresOverrideReason ? 'required' : '' %>></textarea></div>
-          <button class="button button--primary button--align-start" type="submit">Verify after source inspection</button>
+          <button class="button button--primary button--align-start" type="submit">Record staff verification</button>
         </form>
         <form class="form-stack" method="post" action="/documents/<%= document.id %>/correction">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -112,7 +119,7 @@
           <tbody><% for (const item of document.history) { %><tr>
             <td data-label="Submission">#<%= item.id %><% if (item.id === document.id) { %> · Current<% } else if (item.id === document.supersedes_document_id) { %> · Previous version<% } %></td>
             <td data-label="File"><%= item.original_filename %></td>
-            <td data-label="Status"><%= item.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></td>
+            <td data-label="Status"><%= documentStatusLabel(item.status, item.latest_decision_type, item.latest_review_action) %></td>
             <td data-label="Date"><%= item.created_at ? new Date(item.created_at).toLocaleString() : '—' %></td>
             <td data-label="Actions"><a class="table-action" href="/documents/<%= item.id %>">View</a> · <a class="table-action" href="/documents/<%= item.id %>/download">Download</a></td>
           </tr><% } %></tbody>
@@ -126,8 +133,9 @@
     <% if (document.decisions.length || document.reviewEvents.length) { %>
       <ul class="document-review-history">
         <% for (const decision of document.decisions) { %>
-          <li><strong><%= decision.decision_type === 'verified' ? 'Verified after source inspection' : decision.decision_type === 'rejected' ? 'Rejected' : 'Correction requested' %></strong><span><%= decision.created_at ? new Date(decision.created_at).toLocaleString() : '—' %><% if (isStaff) { %> · <%= decision.reviewer_name %><% } %></span>
+          <li><strong><%= decision.decision_type === 'verified' ? 'Verified after staff source inspection' : decision.decision_type === 'rejected' ? 'Rejected after staff review' : 'Correction requested' %></strong><span><%= decision.created_at ? new Date(decision.created_at).toLocaleString() : '—' %><% if (isStaff) { %> · <%= decision.reviewer_name %><% } %></span>
             <% if (decision.reason) { %><p><%= decision.reason %></p><% } %>
+            <% if (isStaff && decision.verificationChecklist?.length) { %><p>Staff source-inspection checklist:</p><ul><% for (const item of decision.verificationChecklist) { %><li><%= item %></li><% } %></ul><% } %>
           </li>
         <% } %>
         <% for (const event of document.reviewEvents) { %>

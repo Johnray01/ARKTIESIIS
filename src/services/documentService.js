@@ -34,6 +34,63 @@ const ADVISORY_KEYS_BY_TYPE = new Map([
   ['good_moral', ['linked_student_name', 'possible_school_name']],
   ['psa_birth_certificate', ['linked_student_name']]
 ]);
+const LINKED_STUDENT_NAME_ITEM_V1 = {
+  key: 'linkedStudentNameLegible',
+  label: 'I inspected the source and confirmed the linked student name is visibly present and legible.'
+};
+const SCHOOL_NAME_ITEM_V1 = {
+  key: 'schoolNameLegible',
+  label: 'I inspected the source and confirmed school-name text is visibly present and legible.'
+};
+const DOCUMENT_TYPE_ITEM_V1 = {
+  key: 'selectedDocumentTypeCorrect',
+  label: 'I confirmed the selected document type matches the submitted file.'
+};
+const ALL_PAGES_ITEM_V1 = {
+  key: 'allSubmittedPagesReadableComplete',
+  label: 'I inspected all submitted pages and confirmed they are readable and complete.'
+};
+const VERIFICATION_CHECKLIST_VERSION = 1;
+const VERIFICATION_CHECKLIST_ITEMS_V1 = new Map([
+  ['report_card', [LINKED_STUDENT_NAME_ITEM_V1, SCHOOL_NAME_ITEM_V1, DOCUMENT_TYPE_ITEM_V1, ALL_PAGES_ITEM_V1]],
+  ['good_moral', [LINKED_STUDENT_NAME_ITEM_V1, SCHOOL_NAME_ITEM_V1, DOCUMENT_TYPE_ITEM_V1, ALL_PAGES_ITEM_V1]],
+  ['psa_birth_certificate', [LINKED_STUDENT_NAME_ITEM_V1, DOCUMENT_TYPE_ITEM_V1, ALL_PAGES_ITEM_V1]]
+]);
+const VERIFICATION_CHECKLIST_ITEMS_BY_VERSION = new Map([
+  [VERIFICATION_CHECKLIST_VERSION, VERIFICATION_CHECKLIST_ITEMS_V1]
+]);
+
+function verificationChecklistItems(documentType) {
+  return VERIFICATION_CHECKLIST_ITEMS_V1.get(documentType) || [];
+}
+
+function serializeVerificationChecklist(documentType, input) {
+  const items = verificationChecklistItems(documentType);
+  if (!items.length) throw new DocumentServiceError('This document type cannot be verified through the digital review workflow.', 409);
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || items.some(({ key }) => input[key] !== 'yes')) {
+    throw new DocumentServiceError('Confirm every applicable source-inspection checklist item before verifying this submission.');
+  }
+  return JSON.stringify({
+    schemaVersion: VERIFICATION_CHECKLIST_VERSION,
+    ...Object.fromEntries(items.map(({ key }) => [key, true]))
+  });
+}
+
+function displayVerificationChecklist(value) {
+  if (typeof value !== 'string') return [];
+  try {
+    const stored = JSON.parse(value);
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return [];
+    const definitions = VERIFICATION_CHECKLIST_ITEMS_BY_VERSION.get(stored.schemaVersion);
+    if (!definitions) return [];
+    return [...new Set([...definitions.values()].flat())]
+      .filter(({ key }) => stored[key] === true)
+      .map(({ label }) => label);
+  } catch {
+    return [];
+  }
+}
 
 function activeAdvisoryChecks(documentType, checks) {
   if (!Array.isArray(checks)) return [];
@@ -561,12 +618,13 @@ function createDocumentService({
           AND @documentType <> 'psa_birth_certificate'
         ORDER BY e.created_at DESC, e.id DESC`;
     const decisionHistorySql = STAFF_ROLES.has(actor.role)
-      ? `SELECT e.id, e.decision_type, e.reason, e.created_at, ${visibleReviewer} AS reviewer_name
+      ? `SELECT e.id, e.decision_type, e.reason, e.verification_checklist_json, e.created_at, ${visibleReviewer} AS reviewer_name
         FROM dbo.document_decision_events AS e
         LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.reviewer_id
         WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`
       : `SELECT e.id, e.decision_type,
           CASE WHEN e.decision_type = 'correction_requested' AND @documentType <> 'psa_birth_certificate' THEN e.reason ELSE NULL END AS reason,
+          CAST(NULL AS NVARCHAR(500)) AS verification_checklist_json,
           e.created_at,
           CAST(NULL AS NVARCHAR(201)) AS reviewer_name
         FROM dbo.document_decision_events AS e
@@ -577,13 +635,27 @@ function createDocumentService({
         .input('studentId', sql.Int, document.student_id)
         .input('documentType', sql.NVarChar(50), document.document_type)
         .input('actorId', sql.Int, actor.id)
-        .query(`SELECT id, original_filename, status, supersedes_document_id, created_at
-          FROM dbo.documents AS d
-          WHERE d.student_id = @studentId AND d.document_type = @documentType
-            AND (d.document_type <> 'psa_birth_certificate'
+        .query(`SELECT history_document.id, history_document.original_filename,
+            history_document.status, history_document.supersedes_document_id, history_document.created_at,
+            latest.action_type AS latest_review_action, latest_decision.decision_type AS latest_decision_type
+          FROM dbo.documents AS history_document
+          OUTER APPLY (
+            SELECT TOP (1) latest_review_event.action_type
+            FROM dbo.document_review_events AS latest_review_event
+            WHERE latest_review_event.document_id = history_document.id
+            ORDER BY latest_review_event.created_at DESC, latest_review_event.id DESC
+          ) AS latest
+          OUTER APPLY (
+            SELECT TOP (1) latest_decision_event.decision_type
+            FROM dbo.document_decision_events AS latest_decision_event
+            WHERE latest_decision_event.document_id = history_document.id
+            ORDER BY latest_decision_event.created_at DESC, latest_decision_event.id DESC
+          ) AS latest_decision
+          WHERE history_document.student_id = @studentId AND history_document.document_type = @documentType
+            AND (history_document.document_type <> 'psa_birth_certificate'
               OR EXISTS (SELECT 1 FROM dbo.users WHERE id = @actorId AND role IN ('registrar', 'database_admin'))
-              OR d.upload_source IN ('registrar', 'database_admin'))
-          ORDER BY d.created_at DESC, d.id DESC`),
+              OR history_document.upload_source IN ('registrar', 'database_admin'))
+          ORDER BY history_document.created_at DESC, history_document.id DESC`),
       pool.request()
         .input('documentId', sql.Int, documentId)
         .input('documentType', sql.NVarChar(50), document.document_type)
@@ -620,11 +692,15 @@ function createDocumentService({
         message: OCR_MESSAGES.get(outcome) || 'A processing result is available for staff review.'
       };
     }
+    const decisions = (decisionsResult.recordset || []).map(({ verification_checklist_json: checklistJson, ...decision }) => ({
+      ...decision,
+      verificationChecklist: displayVerificationChecklist(checklistJson)
+    }));
     return {
       ...document,
       history: historyResult.recordset || [],
       reviewEvents: eventsResult.recordset || [],
-      decisions: decisionsResult.recordset || [],
+      decisions,
       validation,
       isStaff: STAFF_ROLES.has(actor.role)
     };
@@ -670,7 +746,7 @@ function createDocumentService({
     });
   }
 
-  async function decideDocument(actorInput, documentInput, decisionInput, reasonInput = '') {
+  async function decideDocument(actorInput, documentInput, decisionInput, reasonInput = '', checklistInput = null) {
     const documentId = normalizeId(documentInput);
     if (!documentId) throw new DocumentServiceError('Document not found.', 404);
     const decision = ['verified', 'correction_requested', 'rejected'].includes(decisionInput) ? decisionInput : null;
@@ -708,6 +784,9 @@ function createDocumentService({
       if (!document.result_status) {
         throw new DocumentServiceError('An OCR result must be recorded before staff review.', 409);
       }
+      const checklistJson = decision === 'verified'
+        ? serializeVerificationChecklist(document.document_type, checklistInput)
+        : null;
 
       const latestDecisionResult = await transaction.request()
         .input('documentId', sql.Int, documentId)
@@ -743,8 +822,10 @@ function createDocumentService({
         .input('reviewerId', sql.Int, actor.id)
         .input('decisionType', sql.NVarChar(40), decision)
         .input('reason', sql.NVarChar(1000), reason || null)
-        .query(`INSERT INTO dbo.document_decision_events (document_id, reviewer_id, decision_type, reason)
-          VALUES (@documentId, @reviewerId, @decisionType, @reason)`);
+        .input('verificationChecklistJson', sql.NVarChar(500), checklistJson)
+        .query(`INSERT INTO dbo.document_decision_events
+            (document_id, reviewer_id, decision_type, reason, verification_checklist_json)
+          VALUES (@documentId, @reviewerId, @decisionType, @reason, @verificationChecklistJson)`);
 
       const nextStatus = decision === 'verified' ? 'valid' : decision === 'rejected' ? 'rejected' : 'needs_review';
       const updateResult = await transaction.request()
@@ -842,5 +923,6 @@ module.exports = {
   normalizeId,
   normalizeDocumentType,
   validateUpload,
-  hasSupportedSignature
+  hasSupportedSignature,
+  verificationChecklistItems
 };

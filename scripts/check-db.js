@@ -4,9 +4,9 @@ async function checkDatabase() {
   try {
     const pool = await getPool();
     const result = await pool.request()
-      .query("SELECT [version] FROM dbo.schema_migrations WHERE [version] IN ('001', '002', '003', '004', '005', '006', '007')");
+      .query("SELECT [version] FROM dbo.schema_migrations WHERE [version] IN ('001', '002', '003', '004', '005', '006', '007', '008')");
     const versions = new Set(result.recordset.map(({ version }) => version));
-    const missingVersions = ['001', '002', '003', '004', '005', '006', '007'].filter((version) => !versions.has(version));
+    const missingVersions = ['001', '002', '003', '004', '005', '006', '007', '008'].filter((version) => !versions.has(version));
     const objects = await pool.request().query(`SELECT
         OBJECT_ID(N'dbo.grade_import_previews', N'U') AS grade_import_previews,
         OBJECT_ID(N'dbo.grade_import_preview_rows', N'U') AS grade_import_preview_rows,
@@ -14,6 +14,8 @@ async function checkDatabase() {
         COL_LENGTH(N'dbo.students', N'lrn') AS lrn_column_length,
         OBJECT_ID(N'dbo.CK_students_lrn_format', N'C') AS lrn_check_constraint,
         OBJECT_ID(N'dbo.TR_students_require_lrn_on_insert', N'TR') AS lrn_insert_trigger,
+        COL_LENGTH(N'dbo.document_decision_events', N'verification_checklist_json') AS verification_checklist_column_length,
+        OBJECT_ID(N'dbo.CK_document_decision_event_verification_checklist', N'C') AS verification_checklist_constraint,
         CASE WHEN EXISTS (
           SELECT 1 FROM sys.indexes
           WHERE object_id = OBJECT_ID(N'dbo.students') AND name = N'UX_students_lrn'
@@ -26,6 +28,8 @@ async function checkDatabase() {
       ...(schema.lrn_column_length !== 24 ? ['dbo.students.lrn NVARCHAR(12)'] : []),
       ...(!schema.lrn_check_constraint ? ['dbo.CK_students_lrn_format'] : []),
       ...(!schema.lrn_insert_trigger ? ['dbo.TR_students_require_lrn_on_insert'] : []),
+      ...(schema.verification_checklist_column_length !== 1000 ? ['dbo.document_decision_events.verification_checklist_json NVARCHAR(500)'] : []),
+      ...(!schema.verification_checklist_constraint ? ['dbo.CK_document_decision_event_verification_checklist'] : []),
       ...(schema.unique_lrn_index !== 1 ? ['dbo.UX_students_lrn'] : [])
     ];
 
@@ -36,9 +40,9 @@ async function checkDatabase() {
       return;
     }
 
-    console.log('Database connectivity, migrations 001–007, LRN constraints/index/trigger, and grade-import preview tables verified.');
+    console.log('Database connectivity, migrations 001–008, LRN constraints/index/trigger, verification checklist storage, and grade-import preview tables verified.');
   } catch {
-    console.error('Database check failed. Confirm the database settings, connectivity, and schema migrations 001 through 007.');
+    console.error('Database check failed. Confirm the database settings, connectivity, and schema migrations 001 through 008.');
     process.exitCode = 1;
   } finally {
     try {

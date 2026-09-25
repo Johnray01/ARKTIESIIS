@@ -23,6 +23,20 @@ test('Good Moral and PSA checks are limited to their leader-directed advisory cl
   assert.deepEqual(psa.map(({ key, found }) => [key, found]), [['linked_student_name', true]]);
 });
 
+test('digital document name clues compare linked first and last names on one OCR line', () => {
+  for (const documentType of ['report_card', 'good_moral', 'psa_birth_certificate']) {
+    const getNameMatch = (text) => advisoryChecks(documentType, text, student)
+      .find(({ key }) => key === 'linked_student_name').found;
+
+    assert.equal(getNameMatch('Student: JAMIE M. GARCIA'), true, `${documentType} recognizes a nearby name clue`);
+    assert.equal(getNameMatch('Student: Garcia, Jamie'), true, `${documentType} allows surname-first text`);
+    assert.equal(getNameMatch('Jamie Cruz\nLuis Garcia'), false, `${documentType} ignores name parts on separate lines`);
+    assert.equal(getNameMatch('Jamie is enrolled at the school while Luis Garcia attends elsewhere'), false,
+      `${documentType} ignores distant names on the same line`);
+    assert.equal(getNameMatch('Jamieston Garcia'), false, `${documentType} requires complete name tokens`);
+  }
+});
+
 test('school-name candidate lines are capped and bounded before staff views render them', () => {
   const longLine = `Private School ${'x'.repeat(500)}`;
   const checks = advisoryChecks('report_card', `Jamie Garcia\n${longLine}\nAnother College\nThird Institute\nFourth Academy\nMathematics 150`, student);

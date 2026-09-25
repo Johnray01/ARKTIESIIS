@@ -13,7 +13,7 @@
 
   <% if (!isStaff) { %>
     <section class="admin-section" aria-labelledby="form137-status-title">
-      <div class="admin-section__heading"><div><h2 id="form137-status-title">Form 137 physical record</h2><p>Form 137 is tracked as a physical document. No file is uploaded or processed.</p></div></div>
+      <div class="admin-section__heading"><div><h2 id="form137-status-title">Form 137 physical record</h2><p>Authorized staff may send a scan for temporary local OCR suggestions. The scan and OCR text are not stored as a document or database record; only the human-recorded status and instruction are saved. Suggestions are for staff inspection only.</p></div></div>
       <p><strong>Status:</strong> <%= form137Status.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></p>
       <% if (form137Status.instruction) { %><p class="form-alert" role="status"><%= form137Status.instruction %></p><% } %>
       <% if (form137Status.created_at) { %><p class="muted-copy">Updated <%= new Date(form137Status.created_at).toLocaleString() %></p><% } %>
@@ -65,9 +65,7 @@
                 <% if (isStaff) { %><td data-label="Student"><%= document.student_no %> · <%= [document.first_name, document.middle_name, document.last_name].filter(Boolean).join(' ') %></td><% } %>
                 <td data-label="Document"><%= documentTypeLabel(document.document_type) %><% if (document.supersedes_document_id) { %><br><span class="muted-copy">Corrected submission</span><% } %></td>
                 <td data-label="File"><%= document.original_filename %></td>
-                <td data-label="Status"><%= document.status.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %>
-                  <% if (document.status === 'needs_review' && (document.latest_decision_type === 'correction_requested' || document.latest_review_action === 'correction_requested')) { %><br><span class="muted-copy">Correction requested</span><% } %>
-                </td>
+                <td data-label="Status"><%= documentStatusLabel(document.status, document.latest_decision_type, document.latest_review_action) %></td>
                 <td data-label="Submitted"><%= document.created_at ? new Date(document.created_at).toLocaleString() : '—' %></td>
                 <td data-label="Actions"><a class="table-action" href="/documents/<%= document.id %>">View details</a></td>
               </tr>

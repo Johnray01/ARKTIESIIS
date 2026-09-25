@@ -6,7 +6,7 @@ const path = require('node:path');
 const environment = require('../src/config/environment');
 const { readMigrationFiles, splitSqlBatches } = require('../scripts/db-setup');
 const { createDocumentProcessingService, startProcessingRecoveryScheduler } = require('../src/services/documentProcessingService');
-const { createDocumentService } = require('../src/services/documentService');
+const { createDocumentService, verificationChecklistItems } = require('../src/services/documentService');
 const { createLocalOcrService } = require('../src/services/localOcrService');
 const { createForm137ScanService } = require('../src/services/form137ScanService');
 
@@ -499,9 +499,17 @@ test('a manual decision cannot overlap an OCR lease and stays final after the wo
     await job;
     assert.equal(harness.state.document.status, 'needs_review');
     assert.equal(harness.state.validations.length, 1);
-    await review.decideDocument(7, '84', 'verified', 'Source document inspected by registrar.');
+    const verificationChecklist = Object.fromEntries(verificationChecklistItems('report_card').map(({ key }) => [key, 'yes']));
+    await review.decideDocument(7, '84', 'verified', 'Source document inspected by registrar.', verificationChecklist);
     assert.equal(harness.state.document.status, 'valid');
     assert.equal(harness.state.decisionEvents.length, 1);
+    assert.deepEqual(JSON.parse(harness.state.decisionEvents[0].verificationChecklistJson), {
+      schemaVersion: 1,
+      linkedStudentNameLegible: true,
+      schoolNameLegible: true,
+      selectedDocumentTypeCorrect: true,
+      allSubmittedPagesReadableComplete: true
+    });
     assert.equal((await processing.processPendingDocument(84)).status, 'not_pending');
     assert.equal(harness.state.document.status, 'valid', 'a later worker scan cannot replace the manual decision');
   } finally {
@@ -597,6 +605,20 @@ test('migration 006 is numbered forward-only and records decisions/status histor
   const rollbackScript = await fs.readFile(path.resolve(__dirname, '../scripts/migration-rollback.js'), 'utf8');
   assert.match(rollbackScript, /await transaction\.rollback\(\)/);
   assert.match(rollbackScript, /OBJECT_ID\(N'dbo\.document_decision_events'/);
+});
+
+test('migration 008 adds nullable verified-checklist storage without rewriting legacy decisions', async () => {
+  const migration = readMigrationFiles().find(({ version }) => version === '008');
+  assert.ok(migration);
+  assert.equal(migration.fileName, '008_document_verification_checklist.sql');
+  const batches = splitSqlBatches(await fs.readFile(migration.filePath, 'utf8'));
+  assert.equal(batches.length, 2);
+  assert.match(batches[0], /ADD verification_checklist_json NVARCHAR\(500\) NULL/);
+  assert.match(batches[1], /ADD CONSTRAINT CK_document_decision_event_verification_checklist[\s\S]*CHECK \([\s\S]*verification_checklist_json IS NULL[\s\S]*decision_type = 'verified'[\s\S]*ISJSON\(verification_checklist_json\) = 1/i);
+  assert.doesNotMatch(batches.join('\n'), /UPDATE\s+dbo\.document_decision_events|DROP\s+(?:TABLE|COLUMN|CONSTRAINT)/i);
+  const checkScript = await fs.readFile(path.resolve(__dirname, '../scripts/check-db.js'), 'utf8');
+  assert.match(checkScript, /'008'/);
+  assert.match(checkScript, /verification_checklist_json/);
 });
 
 test('parallel queue workers claim distinct submissions at bounded per-service concurrency', async () => {

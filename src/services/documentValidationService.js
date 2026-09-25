@@ -16,12 +16,37 @@ function validateRequiredText(extractedText, requirements = []) {
   };
 }
 
+const MAX_NAME_GAP_TOKENS = 2;
+
+function containsNameSequence(tokens, sequence, start) {
+  return sequence.every((token, offset) => tokens[start + offset] === token);
+}
+
+function namePartsAppearNear(tokens, firstName, lastName) {
+  const orders = [[firstName, lastName], [lastName, firstName]];
+  return orders.some(([left, right]) => {
+    for (let leftStart = 0; leftStart <= tokens.length - left.length; leftStart += 1) {
+      if (!containsNameSequence(tokens, left, leftStart)) continue;
+      const rightStart = leftStart + left.length;
+      const lastRightStart = Math.min(tokens.length - right.length, rightStart + MAX_NAME_GAP_TOKENS);
+      for (let index = rightStart; index <= lastRightStart; index += 1) {
+        if (containsNameSequence(tokens, right, index)) return true;
+      }
+    }
+    return false;
+  });
+}
+
 function linkedStudentNameFound(extractedText, student = {}) {
-  const normalizedText = ` ${normalize(extractedText)} `;
-  const firstName = normalize(student.first_name);
-  const lastName = normalize(student.last_name);
-  if (!firstName || !lastName || firstName.length < 2 || lastName.length < 2) return false;
-  return normalizedText.includes(` ${firstName} `) && normalizedText.includes(` ${lastName} `);
+  const firstName = normalize(student.first_name).split(' ').filter(Boolean);
+  const lastName = normalize(student.last_name).split(' ').filter(Boolean);
+  if (!firstName.length || !lastName.length
+    || firstName.join('').length < 2 || lastName.join('').length < 2) return false;
+
+  return String(extractedText ?? '').split(/\r?\n/).some((line) => {
+    const tokens = normalize(line).split(' ').filter(Boolean);
+    return namePartsAppearNear(tokens, firstName, lastName);
+  });
 }
 
 function possibleSchoolNameFound(extractedText) {
@@ -43,7 +68,7 @@ function findPossibleSchoolNames(extractedText) {
 function advisoryChecks(documentType, extractedText, student) {
   const checks = [{
     key: 'linked_student_name',
-    label: 'Linked student name appears in the extracted text',
+    label: 'Possible linked student-name match',
     found: linkedStudentNameFound(extractedText, student)
   }];
 
@@ -63,7 +88,7 @@ function form137AdvisoryChecks(extractedText, student) {
   return [
     {
       key: 'linked_student_name',
-      label: 'Linked student name appears in the scanned text',
+      label: 'Possible linked student-name match',
       found: linkedStudentNameFound(extractedText, student)
     },
     {
