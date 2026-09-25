@@ -10,9 +10,17 @@ After installing Tesseract with English language data and Poppler (`pdfinfo`, `p
 npm run ocr:smoke
 ```
 
-This uses synthetic JPEG, PNG, and two-page PDF fixtures to check real text extraction, PDF page order, and temporary-file cleanup. It does not connect to SQL Server or modify application data. On Windows, configure paths in PowerShell before running the command; paths with spaces are supported.
+This uses synthetic JPEG, PNG, and two-page PDF fixtures to check real text extraction, PDF page order, and temporary-file cleanup. The Phase 9 native-runtime acceptance run is on Linux with installed Tesseract, English trained data, and Poppler. It does not connect to SQL Server, modify application data, or exercise the authenticated digital upload or Form 137 scan route. Windows executable-path handling is covered by a mocked test in `tests/localOcrService.test.js`; the historical Windows report is compatibility evidence only.
 
-Example PowerShell setup (adjust the Poppler directory if needed):
+To additionally exercise the private digital upload and processing services, plus the transient Form 137 scan service, with real local OCR and synthetic fixtures, run:
+
+```bash
+ARKTIESIIS_RUN_NATIVE_OCR_INTEGRATION=1 node --test tests/documentProcessing.test.js
+```
+
+These opt-in tests use injected in-memory transaction/read harnesses and temporary directories; they do not connect to SQL Server or use real student documents. They are skipped by the ordinary test suite unless the environment flag is set. The digital test verifies the extracted text is saved against the upload's document id and is available only through a registrar read; the Form 137 test verifies the scan buffer and staged files are cleared and OCR text is not returned.
+
+Supplemental PowerShell path configuration for manually checking a Windows installation (adjust the Poppler directory if needed; this does not substitute for the Linux acceptance run):
 
 ```powershell
 $env:TESSERACT_PATH = 'C:\Program Files\Tesseract-OCR\tesseract.exe'

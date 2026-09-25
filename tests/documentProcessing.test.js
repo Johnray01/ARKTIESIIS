@@ -3,14 +3,21 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const environment = require('../src/config/environment');
 const { readMigrationFiles, splitSqlBatches } = require('../scripts/db-setup');
 const { createDocumentProcessingService, startProcessingRecoveryScheduler } = require('../src/services/documentProcessingService');
 const { createDocumentService } = require('../src/services/documentService');
+const { createLocalOcrService } = require('../src/services/localOcrService');
+const { createForm137ScanService } = require('../src/services/form137ScanService');
+
+const runNativeOcrIntegration = process.env.ARKTIESIIS_RUN_NATIVE_OCR_INTEGRATION === '1';
+const ocrFixtureDirectory = path.join(__dirname, 'fixtures/ocr');
 
 function fakeSql() {
   return {
     MAX: 'MAX',
     Int: 'Int',
+    BigInt: 'BigInt',
     ISOLATION_LEVEL: { SERIALIZABLE: 'SERIALIZABLE', READ_COMMITTED: 'READ_COMMITTED' },
     NVarChar: (length) => `NVarChar(${length})`
   };
@@ -101,6 +108,20 @@ function documentHarness({ status = 'pending', storedFilename, mimeType, documen
               return { recordset: [{ id: transaction.localDocument.id }] };
             }
             if (statement.includes('FROM dbo.users WITH')) return { recordset: [{ id: 7, role: 'registrar' }] };
+            if (statement.includes('SELECT id FROM dbo.students WITH') && statement.includes('WHERE id = @studentId')) {
+              return { recordset: [{ id: values.studentId }] };
+            }
+            if (statement.includes('INSERT INTO dbo.documents')) {
+              transaction.localDocument = {
+                ...transaction.localDocument,
+                id: 84,
+                status: 'pending',
+                stored_filename: values.storedFilename,
+                mime_type: values.mimeType,
+                document_type: values.documentType
+              };
+              return { recordset: [{ id: transaction.localDocument.id }] };
+            }
             if (statement.includes('SELECT s.first_name, s.last_name')) return { recordset: [{ first_name: 'Test', last_name: 'Student' }] };
             if (statement.includes('FROM dbo.documents WITH')) return { recordset: [{ id: 84, student_id: 44, document_type: 'report_card' }] };
             if (statement.includes('INSERT INTO dbo.document_review_events')) return { recordset: [] };
@@ -180,6 +201,151 @@ test('configured processing sends private PDF and image submissions to local OCR
     }
   } finally {
     await fs.rm(storageDirectory, { recursive: true, force: true });
+  }
+});
+
+test('native digital upload is processed from private storage and its OCR text is staff-only', { skip: runNativeOcrIntegration ? false : 'Set ARKTIESIIS_RUN_NATIVE_OCR_INTEGRATION=1 to run against installed local OCR tools.' }, async () => {
+  const storageDirectory = await temporaryStorage();
+  const ocrTemporaryDirectory = await temporaryStorage();
+  const harness = documentHarness();
+  try {
+    const imagePath = path.join(ocrFixtureDirectory, 'synthetic-png.png');
+    const uploadBuffer = await fs.readFile(imagePath);
+    const documentService = createDocumentService({
+      getPool: async () => ({}),
+      sql: fakeSql(),
+      transactionFactory: harness.transactionFactory,
+      storageDirectory
+    });
+    const uploaded = await documentService.upload(7, {
+      studentId: '44',
+      documentType: 'report_card'
+    }, {
+      originalname: 'synthetic-report.png',
+      mimetype: 'image/png',
+      buffer: uploadBuffer,
+      size: uploadBuffer.length
+    });
+    assert.equal(uploaded.id, harness.state.document.id);
+    assert.equal(harness.state.document.status, 'pending');
+    const storedPath = path.join(storageDirectory, harness.state.document.stored_filename);
+    assert.deepEqual(await fs.readFile(storedPath), uploadBuffer);
+    if (process.platform !== 'win32') assert.equal((await fs.stat(storedPath)).mode & 0o777, 0o600);
+
+    const processingService = makeService(harness, storageDirectory, {
+      timeoutMs: environment.ocr.timeoutMs,
+      localOcr: createLocalOcrService({
+        ocrConfig: environment.ocr,
+        uploadConfig: environment.upload,
+        temporaryDirectory: ocrTemporaryDirectory
+      })
+    });
+    const processed = await processingService.processPendingDocument(uploaded.id);
+    assert.equal(processed.status, 'needs_review');
+    assert.equal(harness.state.document.status, 'needs_review');
+    const validation = harness.state.validations.find(({ values }) => values.documentId === uploaded.id);
+    assert.ok(validation, 'the validation row is tied to the uploaded immutable submission id');
+    assert.equal(validation.values.processor, 'Tesseract OCR');
+    assert.match(validation.values.extractedText.toUpperCase(), /SYNTHETIC PNG/);
+    assert.equal(validation.values.resultStatus, 'needs_review');
+    assert.deepEqual(await fs.readFile(storedPath), uploadBuffer, 'processing retains the private source submission');
+    assert.deepEqual(await fs.readdir(ocrTemporaryDirectory), [], 'native OCR removes its working files');
+
+    const validationQueries = [];
+    const readPool = {
+      request() {
+        const values = {};
+        return {
+          input(name, _type, value) { values[name] = value; return this; },
+          async query(statement) {
+            if (statement.startsWith('SELECT id, role FROM dbo.users WHERE')) {
+              const role = values.actorId === 7 ? 'registrar' : 'student';
+              return { recordset: [{ id: values.actorId, role }] };
+            }
+            if (statement.includes('FROM dbo.documents AS d')) {
+              return { recordset: [{
+                id: uploaded.id,
+                student_id: 44,
+                document_type: 'report_card',
+                original_filename: 'synthetic-report.png',
+                stored_filename: harness.state.document.stored_filename,
+                mime_type: 'image/png',
+                file_size_bytes: uploadBuffer.length,
+                uploaded_by: 7,
+                upload_source: 'registrar',
+                status: harness.state.document.status,
+                supersedes_document_id: null,
+                created_at: new Date(),
+                student_user_id: 8,
+                student_no: 'SYN-44',
+                first_name: 'Synthetic',
+                middle_name: null,
+                last_name: 'Student',
+                uploader_role: 'registrar'
+              }] };
+            }
+            if (statement.includes('FROM dbo.document_validations')) {
+              validationQueries.push({ actorId: values.actorId, statement });
+              return { recordset: [{
+                id: 1,
+                processor: validation.values.processor,
+                extracted_text: validation.values.extractedText,
+                validation_json: validation.values.validationJson,
+                result_status: validation.values.resultStatus,
+                created_at: new Date()
+              }] };
+            }
+            if (statement.startsWith('SELECT id, original_filename')) return { recordset: [] };
+            if (statement.includes('FROM dbo.document_review_events') || statement.includes('FROM dbo.document_decision_events')) return { recordset: [] };
+            throw new Error(`Unexpected read query: ${statement}`);
+          }
+        };
+      }
+    };
+    const readService = createDocumentService({ getPool: async () => readPool, sql: fakeSql(), storageDirectory });
+    const staffView = await readService.getDocument(7, uploaded.id);
+    assert.match(staffView.validation.extracted_text.toUpperCase(), /SYNTHETIC PNG/);
+    assert.match(validationQueries[0].statement, /role IN \('registrar', 'database_admin'\)/);
+    const studentView = await readService.getDocument(8, uploaded.id);
+    assert.equal(studentView.validation, null);
+    assert.deepEqual(validationQueries.map(({ actorId }) => actorId), [7], 'student detail reads never fetch extracted OCR text');
+  } finally {
+    await fs.rm(storageDirectory, { recursive: true, force: true });
+    await fs.rm(ocrTemporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test('native Form 137 scan returns suggestions only and clears the synthetic scan', { skip: runNativeOcrIntegration ? false : 'Set ARKTIESIIS_RUN_NATIVE_OCR_INTEGRATION=1 to run against installed local OCR tools.' }, async () => {
+  const temporaryDirectory = await temporaryStorage();
+  try {
+    const filePath = path.join(ocrFixtureDirectory, 'synthetic-jpeg.jpg');
+    const buffer = await fs.readFile(filePath);
+    const upload = {
+      originalname: 'synthetic-form137-scan.jpg',
+      mimetype: 'image/jpeg',
+      size: buffer.length,
+      buffer
+    };
+    const service = createForm137ScanService({
+      temporaryDirectory,
+      localOcr: createLocalOcrService({
+        ocrConfig: environment.ocr,
+        uploadConfig: environment.upload,
+        temporaryDirectory
+      }),
+      async getStudentDocuments(_actorId, studentId) {
+        assert.equal(studentId, 44);
+        return { student: { id: 44, first_name: 'Synthetic', middle_name: null, last_name: 'Student' } };
+      }
+    });
+
+    const result = await service.scan(7, 44, upload);
+    assert.equal(result.status, 'completed');
+    assert.equal(Object.hasOwn(result, 'text'), false);
+    assert.ok(upload.buffer.every((byte) => byte === 0));
+    assert.deepEqual(await fs.readdir(temporaryDirectory), []);
+  } finally {
+    await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
 });
 

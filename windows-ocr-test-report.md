@@ -1,4 +1,9 @@
-# Windows Phase 9 WIP Test Handoff Report
+# Historical Windows OCR Test Snapshot
+
+## Scope and applicability
+- Scope note updated 2026-09-24. This is a historical snapshot from an earlier Windows test run. The original run date, source commit, and exact working-tree revision were not recorded; the environment and dependency versions below are the recorded version scope.
+- These results do not validate the current transient Form 137 scan workflow. That workflow sends a staff scan for temporary local OCR, deletes the staged file, and stores only the human-recorded physical status/instruction. The historical Windows smoke result is compatibility context only; the Phase 9 native-runtime gate is a real smoke run on the local Linux environment.
+- Test counts and security observations below describe only the code inspected and exercised for that historical run. They are not acceptance evidence for the current checkout.
 
 ## Branch Details
 - **Branch Checked Out:** `temp-main` (tracking `origin/main`)
@@ -29,7 +34,7 @@
 4. **Finance Role Document Denial:** The finance role is correctly absent from `STAFF_ROLES` and `requireReadActor`, explicitly denying them document visibility.
 5. **Feature Scope Validation:** Confirmed. The processing features only extract OCR text and describe validation. The application does not claim to authenticate signatures, verify seals, detect forgery, or perform forensic document analysis.
 
-## Remaining Acceptance Gates
-Phase 10 remains strictly paused until the school provides the approved required fields, format/compliance rules, human-review cases, and decision wording.
+## Acceptance-gate context
+At the time of this historical run, school-approved type-specific requirements and decision wording were outstanding. In the current checkout, leader-directed advisory checks and human-review controls are implemented; policy-dependent Phase 10 checks remain pending institution approval.
 
-*This report constitutes Windows WIP evidence for Phase 9. No database migrations were applied to a live database.*
+*This report is historical Windows WIP evidence for an earlier Phase 9 snapshot. No database migrations were applied to a live database for that run.*
