@@ -58,11 +58,11 @@
     <section class="admin-section" aria-labelledby="review-actions-title">
       <div class="admin-section__heading"><div><h2 id="review-actions-title">Staff review decision</h2><p>Inspect the source document, then complete the checklist to record verification, request a corrected upload, or reject it. The checklist records staff observations and does not determine authenticity. <% if (document.validation?.requiresOverrideReason) { %>A reason is required to verify despite an OCR warning or failure.<% } %></p></div></div>
       <div class="admin-form-grid">
-        <form class="form-stack" method="post" action="/documents/<%= document.id %>/review">
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/review" data-submitting-message="Sending this submission for staff review. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <button class="button button--secondary button--align-start" type="submit">Send for staff review</button>
         </form>
-        <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision">
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision" data-submitting-message="Recording the staff decision. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="decision" value="verified">
           <fieldset class="admin-fieldset">
             <legend>Required source-inspection checklist</legend>
@@ -74,12 +74,12 @@
           <div class="field"><label for="verify-reason">Verification reason <%= document.validation?.requiresOverrideReason ? '(required for OCR warning or failure)' : '(optional)' %></label><textarea id="verify-reason" name="reason" rows="3" maxlength="1000" <%= document.validation?.requiresOverrideReason ? 'required' : '' %>></textarea></div>
           <button class="button button--primary button--align-start" type="submit">Record staff verification</button>
         </form>
-        <form class="form-stack" method="post" action="/documents/<%= document.id %>/correction">
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/correction" data-submitting-message="Sending the correction instruction. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field"><label for="correction-instruction">Correction instruction <%= document.document_type === 'psa_birth_certificate' ? 'for staff' : 'for the student' %></label><textarea id="correction-instruction" name="instruction" rows="4" maxlength="1000" required></textarea></div>
           <button class="button button--secondary button--align-start" type="submit">Request correction</button>
         </form>
-        <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision">
+        <form class="form-stack" method="post" action="/documents/<%= document.id %>/decision" data-submitting-message="Recording the staff decision. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="decision" value="rejected">
           <div class="field"><label for="rejection-reason">Rejection reason</label><textarea id="rejection-reason" name="reason" rows="3" maxlength="1000" required></textarea></div>
           <button class="button button--secondary button--align-start" type="submit">Reject submission</button>
@@ -89,10 +89,10 @@
     <% if (correctionRequested) { %>
       <section class="admin-section" aria-labelledby="staff-correction-title">
         <div class="admin-section__heading"><div><h2 id="staff-correction-title">Submit corrected file</h2><p>Upload a new linked submission while preserving this original.</p></div></div>
-        <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data">
+        <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data" data-submitting-message="Uploading the corrected document. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <p class="muted-copy">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
-          <div class="field"><label for="replacement-file">Corrected file</label><input id="replacement-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required></div>
+          <p class="muted-copy" id="correction-file-help">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
+          <div class="field"><label for="replacement-file">Corrected file</label><input id="replacement-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" aria-describedby="correction-file-help" required></div>
           <button class="button button--primary button--align-start" type="submit">Upload corrected document</button>
         </form>
       </section>
@@ -101,10 +101,10 @@
     <section class="admin-section" aria-labelledby="correction-title">
       <div class="admin-section__heading"><div><h2 id="correction-title">Correction requested</h2><p>Follow the instruction from staff, then upload the corrected file as a new submission.</p></div></div>
       <p class="form-alert" role="status"><%= latestDecision?.reason || document.reviewEvents[0]?.instruction %></p>
-      <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data">
+      <form class="form-stack document-upload-form" method="post" action="/documents/<%= document.id %>/reupload" enctype="multipart/form-data" data-submitting-message="Uploading the corrected document. Please wait.">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <p class="muted-copy">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
-        <div class="field"><label for="replacement-file">Corrected file</label><input id="replacement-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required></div>
+        <p class="muted-copy" id="correction-file-help">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p>
+        <div class="field"><label for="replacement-file">Corrected file</label><input id="replacement-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" aria-describedby="correction-file-help" required></div>
         <button class="button button--primary button--align-start" type="submit">Upload corrected document</button>
       </form>
     </section>

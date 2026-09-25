@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
+const { readFileSync } = require('node:fs');
 const { spawnSync } = require('node:child_process');
+const { runInNewContext } = require('node:vm');
 const bcrypt = require('bcrypt');
 const { createApp } = require('../src/app');
 const { validateRequiredText } = require('../src/services/documentValidationService');
@@ -224,6 +226,80 @@ test('login page renders', async () => {
     assert.match(html, /name="_csrf"/);
     assert.match(html, /\/images\/arktiesiis-school-seal\.png/);
   });
+});
+
+test('POST form feedback announces a valid submission and leaves prevented submissions available', () => {
+  function fakeElement() {
+    return {
+      attributes: {},
+      dataset: {},
+      listeners: {},
+      children: [],
+      hidden: false,
+      textContent: '',
+      setAttribute(name, value) { this.attributes[name] = value; },
+      removeAttribute(name) { delete this.attributes[name]; },
+      addEventListener(name, listener) { this.listeners[name] = listener; },
+      append(child) { this.children.push(child); }
+    };
+  }
+
+  const validForm = fakeElement();
+  validForm.dataset.submittingMessage = 'Uploading the document. Please wait.';
+  validForm.querySelector = () => validForm.children[0];
+  const validButton = fakeElement();
+  validButton.textContent = 'Upload document';
+  validButton.dataset.submittingLabel = 'Uploading…';
+  validForm.querySelectorAll = () => [validButton];
+  const preventedForm = fakeElement();
+  preventedForm.querySelectorAll = () => [fakeElement()];
+  const forms = [validForm, preventedForm];
+  const document = {
+    querySelector() { return null; },
+    querySelectorAll(selector) {
+      if (selector === '[data-password-match-form]') return [];
+      if (selector === 'form[method="post"]') return forms;
+      return [];
+    },
+    createElement() { return fakeElement(); }
+  };
+  const windowListeners = {};
+
+  runInNewContext(readFileSync('public/js/app.js', 'utf8'), {
+    document,
+    window: { addEventListener(name, listener) { windowListeners[name] = listener; } }
+  });
+
+  const validStatus = validForm.children[0];
+  assert.equal(validStatus.hidden, true);
+  validForm.listeners.submit({ defaultPrevented: false, submitter: validButton });
+  assert.equal(validForm.attributes['aria-busy'], 'true');
+  assert.equal(validStatus.hidden, false);
+  assert.equal(validStatus.attributes.role, 'status');
+  assert.equal(validStatus.attributes['aria-live'], 'polite');
+  assert.equal(validStatus.textContent, 'Uploading the document. Please wait.');
+  assert.equal(validButton.attributes['aria-disabled'], 'true');
+  assert.equal(validButton.textContent, 'Uploading…');
+
+  let duplicatePrevented = false;
+  validForm.listeners.submit({
+    defaultPrevented: false,
+    submitter: validButton,
+    preventDefault() { duplicatePrevented = true; }
+  });
+  assert.equal(duplicatePrevented, true, 'a second submission is blocked while the first request is pending');
+
+  windowListeners.pageshow();
+  assert.equal(validForm.dataset.submitting, 'false');
+  assert.equal(validForm.attributes['aria-busy'], undefined);
+  assert.equal(validStatus.hidden, true);
+  assert.equal(validButton.attributes['aria-disabled'], undefined);
+  assert.equal(validButton.textContent, 'Upload document');
+
+  const preventedStatus = preventedForm.children[0];
+  preventedForm.listeners.submit({ defaultPrevented: true, submitter: preventedForm.querySelectorAll()[0] });
+  assert.equal(preventedStatus.hidden, true);
+  assert.equal(preventedForm.attributes['aria-busy'], undefined);
 });
 
 test('login page remains available when the development password bypass is disabled', async () => {

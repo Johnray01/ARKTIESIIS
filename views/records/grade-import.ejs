@@ -14,7 +14,7 @@
     <section class="admin-section" aria-labelledby="upload-grade-record-title">
       <div class="admin-section__heading"><div><h2 id="upload-grade-record-title">Choose the existing class context</h2><p>The selected context is checked against the workbook and the existing student enrollments.</p></div></div>
       <% if (contexts.length) { %>
-        <form class="form-stack records-compact-form" method="post" enctype="multipart/form-data" action="/records/grade-import/preview">
+        <form class="form-stack records-compact-form" method="post" enctype="multipart/form-data" action="/records/grade-import/preview" data-submitting-message="Checking the workbook and preparing a preview. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field"><label for="grade-import-context">School year, grade level, section, and subject</label>
             <select id="grade-import-context" name="contextKey" required>
@@ -24,7 +24,7 @@
               <% } %>
             </select>
           </div>
-          <div class="field"><label for="grade-import-workbook">Corrected SSHS E-Class Record (.xlsx)</label><input id="grade-import-workbook" name="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required><small class="field-help">Maximum 5 MB. The uploaded workbook is parsed in memory and its bytes are discarded after preview creation.</small></div>
+          <div class="field"><label for="grade-import-workbook">Corrected SSHS E-Class Record (.xlsx)</label><input id="grade-import-workbook" name="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-describedby="grade-import-workbook-help" required><small id="grade-import-workbook-help" class="field-help">Maximum 5 MB. The uploaded workbook is parsed in memory and its bytes are discarded after preview creation.</small></div>
           <button class="button button--primary button--align-start" type="submit">Preview grades</button>
         </form>
       <% } else { %>
@@ -38,7 +38,7 @@
         <p class="form-alert" role="alert">Workbook context: Grade <%= preview.workbookGradeLevel %> · <%= preview.workbookSectionName %> · <%= preview.workbookSubjectName %>. The selected class context differs. These rows are excluded; correct the roster or workbook and upload it again.</p>
       <% } %>
       <p><%= preview.counts.eligible %> matched rows, <%= preview.counts.unresolved %> excluded rows, and <%= preview.counts.conflicts %> grade conflicts.</p>
-      <form class="form-stack" method="post" action="/records/grade-import/<%= preview.id %>/confirm">
+      <form class="form-stack" method="post" action="/records/grade-import/<%= preview.id %>/confirm" data-submitting-message="Saving the selected grades. Please wait.">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="table-scroll" tabindex="0" aria-label="Grade import preview">
           <table class="admin-table">

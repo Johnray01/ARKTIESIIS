@@ -877,6 +877,8 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
     assert.match(studentHtml, /Form 137 physical record/);
     assert.match(studentHtml, /Authorized staff may send a scan for temporary local OCR suggestions/);
     assert.match(studentHtml, /only the human-recorded status and instruction are saved/);
+    assert.match(studentHtml, /id="document-file"[^>]*aria-describedby="upload-format-help"/);
+    assert.match(studentHtml, /id="upload-format-help">Accepted file formats: PDF, JPEG, and PNG\./);
     assert.doesNotMatch(studentHtml, /No file is uploaded or processed/);
     assert.match(studentHtml, /Not recorded/);
     assert.doesNotMatch(studentHtml, /option value="form_137"|option value="psa_birth_certificate"/);

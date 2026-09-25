@@ -17,7 +17,7 @@
     <h2 id="profile-title">Profile details</h2>
     <p>Student profiles and history remain stored when a login is deactivated or the profile is archived.</p>
     <% if (student?.status === 'archived') { %><p class="form-alert" role="status">This student record is archived. Profile edits and new enrollments are disabled. Existing academic and finance history remains available for review, but cannot be changed.</p><% } %>
-    <form class="form-stack admin-form" method="post" action="<%= student ? `/records/students/${student.id}` : '/records/students' %>">
+    <form class="form-stack admin-form" method="post" action="<%= student ? `/records/students/${student.id}` : '/records/students' %>" data-submitting-message="Saving the student profile. Please wait.">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <fieldset <%= student?.status === 'archived' ? 'disabled' : '' %>>
       <div class="admin-form-grid">
@@ -42,14 +42,14 @@
       <div class="admin-section__heading"><div><h2 id="student-access-title">Student login</h2><p>Login access is separate from the retained student profile and history.</p></div></div>
       <p>Linked account: <%= student.user_id ? (student.linked_account_is_active ? 'Active' : 'Inactive') : 'No login account linked' %></p>
       <% if (currentUser.role === 'registrar' && student.status !== 'archived' && student.user_id && student.linked_account_is_active) { %>
-        <form class="form-stack records-compact-form" method="post" action="/records/students/<%= student.id %>/login/deactivate">
+        <form class="form-stack records-compact-form" method="post" action="/records/students/<%= student.id %>/login/deactivate" data-submitting-message="Deactivating the linked student login. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field"><label for="login-deactivate-confirmation">Type DEACTIVATE to disable this student login</label><input id="login-deactivate-confirmation" name="confirmation" type="text" maxlength="10" required autocomplete="off"></div>
           <button class="button button--secondary button--align-start" type="submit">Deactivate login</button>
         </form>
       <% } %>
       <% if (currentUser.role === 'database_admin' && student.status !== 'archived') { %>
-        <form class="form-stack records-compact-form" method="post" action="/records/students/<%= student.id %>/archive">
+        <form class="form-stack records-compact-form" method="post" action="/records/students/<%= student.id %>/archive" data-submitting-message="Archiving the student record. Please wait.">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <p>Archiving retains academic and finance history, marks the profile archived, and disables its linked student login.</p>
           <div class="field"><label for="archive-confirmation">Type <%= student.student_no %> to confirm archiving</label><input id="archive-confirmation" name="confirmation" type="text" maxlength="50" required autocomplete="off"></div>

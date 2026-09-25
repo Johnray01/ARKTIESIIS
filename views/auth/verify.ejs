@@ -7,8 +7,8 @@
   <section class="auth-form-section" aria-labelledby="code-title">
     <h2 id="code-title">Email verification</h2>
     <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
-    <form class="form-stack" method="post" action="/login/verify">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <form class="form-stack" method="post" action="/login/verify" data-submitting-message="Verifying the code. Please wait.">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="field">
         <label for="code">Six-digit code</label>
         <input class="code-input" id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" aria-describedby="code-help" required>
@@ -16,11 +16,11 @@
       </div>
       <button class="button button--primary" type="submit">Verify and sign in</button>
     </form>
-    <form class="resend-form" method="post" action="/login/verify/resend">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <form class="resend-form" method="post" action="/login/verify/resend" data-submitting-message="Requesting a new verification code. Please wait.">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <button class="button button--secondary" type="submit">Send a new code</button>
     </form>
-    <form class="account-switch-form" method="post" action="/login/verify/cancel">
+    <form class="account-switch-form" method="post" action="/login/verify/cancel" data-submitting-message="Returning to sign in. Please wait.">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <button class="text-button" type="submit">Use another account</button>
     </form>

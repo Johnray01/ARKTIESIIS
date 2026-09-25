@@ -12,7 +12,7 @@
 
   <section class="admin-form-section" aria-labelledby="account-details-title">
     <h2 id="account-details-title">Account details</h2>
-    <form class="form-stack admin-form" method="post" action="/admin/users" data-password-match-form>
+    <form class="form-stack admin-form" method="post" action="/admin/users" data-password-match-form data-submitting-message="Creating the account. Please wait.">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="field">
         <label for="email">Email address</label>

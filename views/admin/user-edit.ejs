@@ -14,7 +14,7 @@
 
   <section class="admin-form-section" aria-labelledby="account-settings-title">
     <h2 id="account-settings-title">Account settings</h2>
-    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>">
+    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>" data-submitting-message="Saving the account. Please wait.">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="admin-form-grid">
         <div class="field">
@@ -69,7 +69,7 @@
   <section class="admin-form-section" aria-labelledby="password-reset-title">
     <h2 id="password-reset-title">Reset password</h2>
     <p>Set a new password for this account. Pending email sign-in codes will be invalidated.</p>
-    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>/password" data-password-match-form>
+    <form class="form-stack admin-form" method="post" action="/admin/users/<%= user.id %>/password" data-password-match-form data-submitting-message="Resetting the password. Please wait.">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="admin-form-grid">
         <div class="field">

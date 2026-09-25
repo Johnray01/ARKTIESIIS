@@ -85,7 +85,7 @@
             <p>A financial account cannot be created for an archived student record.</p>
           <% } else { %>
             <p>Create an account to begin recording charges, payments, and signed adjustments.</p>
-            <form method="post" action="/finance/students/<%= student.student_id %>/account<%= searchSuffix %>">
+            <form method="post" action="/finance/students/<%= student.student_id %>/account<%= searchSuffix %>" data-submitting-message="Creating the financial account. Please wait.">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>">
               <button class="button button--primary" type="submit">Create financial account</button>
             </form>
@@ -98,7 +98,7 @@
             <% if (student.status === 'archived') { %>
               <p>New transactions are disabled for archived student records.</p>
             <% } else { %>
-            <form class="form-stack finance-entry" method="post" action="/finance/students/<%= student.student_id %>/transactions<%= searchSuffix %>">
+            <form class="form-stack finance-entry" method="post" action="/finance/students/<%= student.student_id %>/transactions<%= searchSuffix %>" data-submitting-message="Recording the finance transaction. Please wait.">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>">
               <label class="field">
                 <span>Transaction type</span>

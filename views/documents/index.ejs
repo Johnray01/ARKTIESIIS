@@ -22,20 +22,20 @@
 
   <% if (!isStaff) { %>
     <section class="admin-section" aria-labelledby="upload-title">
-      <div class="admin-section__heading"><div><h2 id="upload-title">Upload a document</h2><p>Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p></div></div>
-      <form class="form-stack document-upload-form" method="post" action="/documents" enctype="multipart/form-data">
+      <div class="admin-section__heading"><div><h2 id="upload-title">Upload a document</h2><p id="upload-format-help">Accepted file formats: PDF, JPEG, and PNG. Maximum size: <%= uploadMaxMb %> MB.</p></div></div>
+      <form class="form-stack document-upload-form" method="post" action="/documents" enctype="multipart/form-data" data-submitting-message="Uploading your document. Please wait.">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="admin-form-grid">
           <div class="field">
             <label for="document-type">Document type</label>
-            <select id="document-type" name="documentType" required>
+            <select id="document-type" name="documentType" aria-describedby="upload-format-help" required>
               <option value="">Choose a document type</option>
               <% for (const type of documentTypes) { %><option value="<%= type.value %>" <%= documentType === type.value ? 'selected' : '' %>><%= type.label %></option><% } %>
             </select>
           </div>
           <div class="field">
             <label for="document-file">File</label>
-            <input id="document-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required>
+            <input id="document-file" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" aria-describedby="upload-format-help" required>
           </div>
         </div>
         <button class="button button--primary button--align-start" type="submit">Upload document</button>
