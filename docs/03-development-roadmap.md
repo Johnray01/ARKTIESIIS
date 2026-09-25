@@ -132,3 +132,7 @@
 - Development-only demo accounts and sample records with a guarded, idempotent seeder.
 - Final end-to-end test.
 - Defense demo checklist.
+
+**Phase 15 preparation gate: complete.** The proposed target, production configuration checklist, paired SQL/private-file backup and isolated-restore procedure, unresolved security findings, and defense walkthrough are documented in [the Phase 15 runbook](15-deployment-defense-runbook.md); the guarded seeder was verified with tests. No infrastructure was provisioned and no restore drill or production end-to-end run was performed.
+
+**Live-deployment gate: PENDING.** Provisioning, support and licensing decisions, secure production configuration, migration, private persistent uploads, live Linux OCR, role/download verification, and a successful isolated restore drill remain outstanding. **School-adoption gate: PENDING** institution signoff and approved policies; it is separate from the preparation and live-deployment gates.
