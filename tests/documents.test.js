@@ -337,10 +337,62 @@ test('student decision history lets a final decision supersede correction and hi
     assert.equal(result.decisions[0].reviewer_name, null);
     assert.equal(result.decisions[1].reason, 'Upload a clearer report card.');
     const studentDecisionSql = queries.find((statement) => statement.includes('FROM dbo.document_decision_events AS e'));
-    assert.match(studentDecisionSql, /CASE WHEN e\.decision_type = 'correction_requested' THEN e\.reason ELSE NULL END AS reason/);
+    assert.match(studentDecisionSql, /CASE WHEN e\.decision_type = 'correction_requested' AND @documentType <> 'psa_birth_certificate' THEN e\.reason ELSE NULL END AS reason/);
     assert.doesNotMatch(studentDecisionSql, /AND e\.decision_type = 'correction_requested'/);
     assert.doesNotMatch(studentDecisionSql, /JOIN dbo\.staff_profiles/);
   }
+});
+
+test('student views of staff-uploaded PSA files hide staff-only correction instructions', async () => {
+  const queries = [];
+  const document = {
+    id: 88,
+    student_id: 44,
+    document_type: 'psa_birth_certificate',
+    original_filename: 'psa.pdf',
+    stored_filename: '5dd677e1-87fb-4214-a7c1-27aca233ae1f.pdf',
+    mime_type: 'application/pdf',
+    file_size_bytes: 100,
+    uploaded_by: 9,
+    upload_source: 'registrar',
+    status: 'needs_review',
+    supersedes_document_id: null,
+    created_at: new Date(),
+    student_user_id: 7,
+    student_no: 'S-44',
+    first_name: 'Test',
+    middle_name: null,
+    last_name: 'Student',
+    uploader_role: 'registrar'
+  };
+  const pool = {
+    request() {
+      const values = {};
+      return {
+        input(name, _type, value) { values[name] = value; return this; },
+        async query(statement) {
+          queries.push({ statement, values: { ...values } });
+          if (statement.startsWith('SELECT id, role FROM dbo.users')) return { recordset: [{ id: 7, role: 'student' }] };
+          if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.id = @documentId')) return { recordset: [{ ...document }] };
+          if (statement.includes('FROM dbo.documents AS d') && statement.includes('WHERE d.student_id = @studentId')) return { recordset: [] };
+          if (statement.includes('FROM dbo.document_review_events AS e')) return { recordset: [] };
+          if (statement.includes('FROM dbo.document_decision_events AS e')) return { recordset: [
+            { id: 2, decision_type: 'correction_requested', reason: values.documentType === 'psa_birth_certificate' ? null : 'Internal staff instruction.', created_at: new Date(), reviewer_name: null }
+          ] };
+          throw new Error(`Unexpected read SQL: ${statement}`);
+        }
+      };
+    }
+  };
+
+  const result = await createDocumentService({ getPool: async () => pool, sql: fakeSql() }).getDocument(7, '88');
+  assert.equal(result.decisions[0].reason, null);
+  const reviewQuery = queries.find(({ statement }) => statement.includes('FROM dbo.document_review_events AS e'));
+  const decisionQuery = queries.find(({ statement }) => statement.includes('FROM dbo.document_decision_events AS e'));
+  assert.equal(reviewQuery.values.documentType, 'psa_birth_certificate');
+  assert.match(reviewQuery.statement, /@documentType <> 'psa_birth_certificate'/);
+  assert.equal(decisionQuery.values.documentType, 'psa_birth_certificate');
+  assert.match(decisionQuery.statement, /AND @documentType <> 'psa_birth_certificate' THEN e\.reason/);
 });
 
 test('failed document insert, audit, or transaction commit removes an unreferenced private file', async () => {

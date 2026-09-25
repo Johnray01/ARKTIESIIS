@@ -551,6 +551,7 @@ function createDocumentService({
           CAST(NULL AS INT) AS reviewer_id, CAST(NULL AS NVARCHAR(201)) AS reviewer_name
         FROM dbo.document_review_events AS e
         WHERE e.document_id = @documentId AND e.action_type = 'correction_requested'
+          AND @documentType <> 'psa_birth_certificate'
         ORDER BY e.created_at DESC, e.id DESC`;
     const decisionHistorySql = STAFF_ROLES.has(actor.role)
       ? `SELECT e.id, e.decision_type, e.reason, e.created_at, ${visibleReviewer} AS reviewer_name
@@ -558,7 +559,7 @@ function createDocumentService({
         LEFT JOIN dbo.staff_profiles AS p ON p.user_id = e.reviewer_id
         WHERE e.document_id = @documentId ORDER BY e.created_at DESC, e.id DESC`
       : `SELECT e.id, e.decision_type,
-          CASE WHEN e.decision_type = 'correction_requested' THEN e.reason ELSE NULL END AS reason,
+          CASE WHEN e.decision_type = 'correction_requested' AND @documentType <> 'psa_birth_certificate' THEN e.reason ELSE NULL END AS reason,
           e.created_at,
           CAST(NULL AS NVARCHAR(201)) AS reviewer_name
         FROM dbo.document_decision_events AS e
@@ -578,10 +579,12 @@ function createDocumentService({
           ORDER BY d.created_at DESC, d.id DESC`),
       pool.request()
         .input('documentId', sql.Int, documentId)
+        .input('documentType', sql.NVarChar(50), document.document_type)
         .query(reviewHistorySql),
       validationPromise,
       pool.request()
         .input('documentId', sql.Int, documentId)
+        .input('documentType', sql.NVarChar(50), document.document_type)
         .query(decisionHistorySql)
     ]);
     const validationRow = validationResult.recordset?.[0];
