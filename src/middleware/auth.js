@@ -87,6 +87,7 @@ function createRequireAuth({ getPool = defaultGetPool, sql = defaultSql, environ
       }
 
       req.authUser = { id: user.id, email: user.email, role: user.role };
+      res.set('Cache-Control', 'private, no-store');
       const navigation = buildNavigation(req.authUser.role, req.originalUrl);
       res.locals.currentUser = req.authUser;
       res.locals.currentPath = req.originalUrl.split('?', 1)[0];

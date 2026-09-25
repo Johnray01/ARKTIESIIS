@@ -363,6 +363,7 @@ test('development login regenerates the session and redirects to the database-ba
 
     const rolePage = await fetch(`${baseUrl}/dashboard/registrar`, { headers: { cookie: authenticatedCookie } });
     assert.equal(rolePage.status, 200);
+    assert.equal(rolePage.headers.get('cache-control'), 'private, no-store');
     assert.match(await rolePage.text(), /Registrar dashboard/);
 
     const deniedPage = await fetch(`${baseUrl}/dashboard/finance`, { headers: { cookie: authenticatedCookie } });
