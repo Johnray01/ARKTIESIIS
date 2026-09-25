@@ -69,9 +69,9 @@ function deriveDemoEmails(smtpUser) {
 
 function buildDemoPlan(emails) {
   const students = [
-    { key: 'student1', studentNo: 'DEMO-001', firstName: 'Demo', lastName: 'Learner One', email: emails.student1, grades: ['91.00', '88.50', '94.00'] },
-    { key: 'student2', studentNo: 'DEMO-002', firstName: 'Demo', lastName: 'Learner Two', email: emails.student2, grades: ['85.00', '90.00', '87.50'] },
-    { key: 'student3', studentNo: 'DEMO-003', firstName: 'Demo', lastName: 'Learner Three', email: emails.student3, grades: ['96.00', '92.00', '89.50'] }
+    { key: 'student1', studentNo: 'DEMO-001', lrn: '999000000001', firstName: 'Demo', lastName: 'Learner One', email: emails.student1, grades: ['91.00', '88.50', '94.00'] },
+    { key: 'student2', studentNo: 'DEMO-002', lrn: '999000000002', firstName: 'Demo', lastName: 'Learner Two', email: emails.student2, grades: ['85.00', '90.00', '87.50'] },
+    { key: 'student3', studentNo: 'DEMO-003', lrn: '999000000003', firstName: 'Demo', lastName: 'Learner Three', email: emails.student3, grades: ['96.00', '92.00', '89.50'] }
   ];
   const subjects = [
     { code: 'DEMO-CS101', name: 'Demo Computer Literacy', units: '3.00' },
@@ -318,10 +318,14 @@ async function seedDemoData({
       const inserted = await transaction.request()
         .input('userId', sqlTypes.Int, userIds.get(student.key))
         .input('studentNo', sqlTypes.NVarChar(50), student.studentNo)
+        .input('lrn', sqlTypes.NVarChar(12), student.lrn)
         .input('firstName', sqlTypes.NVarChar(100), student.firstName)
         .input('lastName', sqlTypes.NVarChar(100), student.lastName)
-        .query(`INSERT INTO dbo.students (user_id, student_no, first_name, last_name)
-          OUTPUT INSERTED.id AS id VALUES (@userId, @studentNo, @firstName, @lastName)`);
+        .query(`DECLARE @insertedStudents TABLE (id INT);
+          INSERT INTO dbo.students (user_id, student_no, lrn, first_name, last_name)
+          OUTPUT INSERTED.id INTO @insertedStudents(id)
+          VALUES (@userId, @studentNo, @lrn, @firstName, @lastName);
+          SELECT id FROM @insertedStudents`);
       const studentId = inserted.recordset?.[0]?.id;
       if (!Number.isSafeInteger(studentId) || studentId < 1) throw new Error('Demo student insert returned no identifier.');
       studentIds.set(student.key, studentId);

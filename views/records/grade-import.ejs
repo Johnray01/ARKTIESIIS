@@ -1,0 +1,91 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page admin-page records-page" id="main-content">
+  <a class="context-back" href="/records">Back to student records</a>
+  <section class="dashboard-heading">
+    <div><h1>Import SSHS E-Class Record grades</h1><p>Registrar-only import for the corrected SY 2026–2027 workbook.</p></div>
+  </section>
+  <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
+  <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
+  <% if (summary) { %>
+    <p class="form-success" role="status">Import finished: <%= summary.inserted %> grades added, <%= summary.replaced %> replaced, <%= summary.skipped %> conflicting grades skipped, and <%= summary.excluded %> rows excluded.</p>
+  <% } %>
+
+  <% if (!preview) { %>
+    <section class="admin-section" aria-labelledby="upload-grade-record-title">
+      <div class="admin-section__heading"><div><h2 id="upload-grade-record-title">Choose the existing class context</h2><p>The selected context is checked against the workbook and the existing student enrollments.</p></div></div>
+      <% if (contexts.length) { %>
+        <form class="form-stack records-compact-form" method="post" enctype="multipart/form-data" action="/records/grade-import/preview">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="field"><label for="grade-import-context">School year, grade level, section, and subject</label>
+            <select id="grade-import-context" name="contextKey" required>
+              <option value="">Choose an existing class context</option>
+              <% for (const context of contexts) { %>
+                <option value="<%= context.key %>" <%= contextKey === context.key ? 'selected' : '' %>><%= context.school_year %> · Grade <%= context.grade_level %> · <%= context.section_name %> · <%= context.subject_code %> — <%= context.subject_name %></option>
+              <% } %>
+            </select>
+          </div>
+          <div class="field"><label for="grade-import-workbook">Corrected SSHS E-Class Record (.xlsx)</label><input id="grade-import-workbook" name="workbook" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required><small class="field-help">Maximum 5 MB. The uploaded workbook is parsed in memory and its bytes are discarded after preview creation.</small></div>
+          <button class="button button--primary button--align-start" type="submit">Preview grades</button>
+        </form>
+      <% } else { %>
+        <p class="empty-state">No active 2026–2027 enrollments with assigned subjects are available for grade import.</p>
+      <% } %>
+    </section>
+  <% } else { %>
+    <section class="admin-section" aria-labelledby="preview-context-title">
+      <div class="admin-section__heading"><div><h2 id="preview-context-title">Preview · <%= preview.schoolYear %> · Grade <%= preview.gradeLevel %> · <%= preview.sectionName %></h2><p>Subject: <%= preview.subjectName %>. This preview expires at <%= new Date(preview.expiresAt).toLocaleString() %>.</p></div></div>
+      <% if (preview.contextMismatch) { %>
+        <p class="form-alert" role="alert">Workbook context: Grade <%= preview.workbookGradeLevel %> · <%= preview.workbookSectionName %> · <%= preview.workbookSubjectName %>. The selected class context differs. These rows are excluded; correct the roster or workbook and upload it again.</p>
+      <% } %>
+      <p><%= preview.counts.eligible %> matched rows, <%= preview.counts.unresolved %> excluded rows, and <%= preview.counts.conflicts %> grade conflicts.</p>
+      <form class="form-stack" method="post" action="/records/grade-import/<%= preview.id %>/confirm">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <div class="table-scroll" tabindex="0" aria-label="Grade import preview">
+          <table class="admin-table">
+            <caption class="visually-hidden">Student matches and cached term and final grades from the workbook</caption>
+            <thead><tr><th scope="col">Workbook row</th><th scope="col">Student match</th><th scope="col">Workbook name</th><th scope="col">Term 1</th><th scope="col">Term 2</th><th scope="col">Term 3</th><th scope="col">Final</th><th scope="col">Review and include</th></tr></thead>
+            <tbody>
+              <% for (const row of preview.rows) { %>
+                <tr>
+                  <td data-label="Workbook row"><%= row.sourceRow %></td>
+                  <td data-label="Student match"><% if (row.studentId) { %><strong><%= row.studentNo %></strong><br><%= row.studentName %><% } else { %>No active student match<% } %></td>
+                  <td data-label="Workbook name"><%= row.workbookName || '—' %></td>
+                  <% for (const grade of row.grades) { %>
+                    <td data-label="<%= grade.gradingPeriod %>">
+                      <%= grade.gradeValue %>
+                      <% if (grade.existingGradeId && Number(grade.existingGradeValue) === Number(grade.gradeValue)) { %><small class="field-help">Already matches</small>
+                      <% } else if (grade.existingGradeId) { %>
+                        <small class="field-help">Existing: <%= grade.existingGradeValue ?? 'blank' %></small>
+                        <label class="visually-hidden" for="action-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>">Conflict action for <%= grade.gradingPeriod %></label>
+                        <select id="action-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>" name="action_<%= row.sourceRow %>_<%= grade.gradingPeriod === 'Term 1' ? 'term1' : grade.gradingPeriod === 'Term 2' ? 'term2' : grade.gradingPeriod === 'Term 3' ? 'term3' : 'final' %>">
+                          <option value="skip">Keep existing</option><option value="replace">Replace existing</option>
+                        </select>
+                        <label class="visually-hidden" for="reason-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>">Reason for replacing <%= grade.gradingPeriod %></label>
+                        <input id="reason-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>" name="reason_<%= row.sourceRow %>_<%= grade.gradingPeriod === 'Term 1' ? 'term1' : grade.gradingPeriod === 'Term 2' ? 'term2' : grade.gradingPeriod === 'Term 3' ? 'term3' : 'final' %>" type="text" maxlength="500" placeholder="Reason if replacing">
+                      <% } else { %><small class="field-help">New grade</small><% } %>
+                    </td>
+                  <% } %>
+                  <td data-label="Review and include">
+                    <% if (row.issue) { %><span class="record-status record-status--archived">Excluded</span><p><%= row.issue %></p>
+                    <% } else { %>
+                      <% if (row.nameMismatch) { %>
+                        <p class="form-alert">Matched LRN, but the names differ. Database name: <%= row.studentName %>.</p>
+                        <label class="checkbox-field"><input name="overrideName_<%= row.sourceRow %>" value="yes" type="checkbox"><span>I reviewed this name difference.</span></label>
+                        <label class="visually-hidden" for="name-reason-<%= row.sourceRow %>">Reason for name-mismatch override</label>
+                        <input id="name-reason-<%= row.sourceRow %>" name="nameReason_<%= row.sourceRow %>" type="text" maxlength="500" placeholder="Reason if including this learner">
+                      <% } %>
+                      <label class="checkbox-field"><input name="includeRow_<%= row.sourceRow %>" value="yes" type="checkbox"><span>Include these grades</span></label>
+                    <% } %>
+                  </td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+        <p class="field-help">Rows are excluded unless you select “Include these grades.” Name differences require a separate review checkbox and reason. Conflicting grades stay as recorded unless you choose Replace and give a reason. Equal grades are left unchanged.</p>
+        <div class="admin-form-actions"><button class="button button--primary" type="submit" <%= preview.contextMismatch || !preview.counts.eligible ? 'disabled' : '' %>>Confirm selected grades</button><a class="button button--secondary" href="/records/grade-import">Upload another workbook</a></div>
+      </form>
+    </section>
+  <% } %>
+</main>
+<%- include('../partials/foot') %>

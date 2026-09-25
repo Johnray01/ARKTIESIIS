@@ -1,4 +1,6 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('node:path');
 const { ensureCsrfToken, hasValidCsrfToken } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const {
@@ -7,6 +9,7 @@ const {
   normalizeId,
   isUniqueConflict
 } = require('../services/academicRecordsService');
+const { GradeImportError, createGradeImportService } = require('../services/gradeImportService');
 
 const notices = {
   subjectCreated: 'Subject created.',
@@ -23,9 +26,139 @@ function subjectValues(input = {}) {
   };
 }
 
-function createAcademicRecordsRouter({ getPool, sql, academicRecordsService } = {}) {
+function createAcademicRecordsRouter({ getPool, sql, academicRecordsService, gradeImportService } = {}) {
   const router = express.Router();
   const service = academicRecordsService || createAcademicRecordsService({ getPool, sql });
+  const importService = gradeImportService || createGradeImportService({ getPool, sql });
+  const workbookUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { files: 1, fileSize: 5 * 1024 * 1024, fields: 3, parts: 4 }
+  }).single('workbook');
+
+  router.use('/grade-import', (_req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    next();
+  });
+
+  async function renderGradeImport(req, res, { status = 200, error = null, preview = null, contextKey = '' } = {}) {
+    try {
+      const contexts = await importService.listImportContexts(req.authUser.id);
+      const summary = req.session.gradeImportSummary || null;
+      delete req.session.gradeImportSummary;
+      return res.status(status).render('records/grade-import', {
+        title: 'Import SSHS E-Class Record Grades',
+        csrfToken: ensureCsrfToken(req),
+        currentUser: req.authUser,
+        contexts,
+        contextKey,
+        preview,
+        summary,
+        error,
+        notice: req.query.notice === 'gradeImportCompleted' ? 'Grade import completed.' : null
+      });
+    } catch {
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'The grade-import workspace could not be loaded.' });
+    }
+  }
+
+  function parseWorkbookUpload(req, res, next) {
+    workbookUpload(req, res, (error) => {
+      if (!error) return next();
+      const message = error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE'
+        ? 'The XLSX workbook must be 5 MB or smaller.'
+        : 'Choose one XLSX workbook to preview.';
+      return renderGradeImport(req, res, { status: error.status || 400, error: message });
+    });
+  }
+
+  router.get('/grade-import', requireRole('registrar'), (req, res) => renderGradeImport(req, res, { contextKey: req.query.contextKey || '' }));
+
+  router.post('/grade-import/preview', requireRole('registrar'), parseWorkbookUpload, async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      if (req.file?.buffer) req.file.buffer.fill(0);
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+    const file = req.file;
+    if (!file) return renderGradeImport(req, res, { status: 400, error: 'Choose one XLSX workbook.' });
+    try {
+      const extension = path.extname(file.originalname).toLocaleLowerCase();
+      const validMime = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      const validZip = file.buffer.length >= 4 && file.buffer[0] === 0x50 && file.buffer[1] === 0x4b;
+      if (extension !== '.xlsx' || !validMime || !validZip) {
+        return renderGradeImport(req, res, { status: 400, error: 'Upload a valid .xlsx workbook with the Excel XLSX MIME type.' });
+      }
+      const contextKey = typeof req.body?.contextKey === 'string' ? req.body.contextKey : '';
+      const preview = await importService.createPreview({
+        actorId: req.authUser.id,
+        sessionId: req.sessionID,
+        contextKey,
+        buffer: file.buffer
+      });
+      return renderGradeImport(req, res, { preview, contextKey });
+    } catch (error) {
+      if (error instanceof GradeImportError) return renderGradeImport(req, res, { status: error.status, error: error.message });
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'The workbook could not be previewed.' });
+    } finally {
+      file.buffer.fill(0);
+      req.file = undefined;
+    }
+  });
+
+  router.get('/grade-import/:previewId', requireRole('registrar'), async (req, res) => {
+    if (!/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(req.params.previewId)) {
+      return renderGradeImport(req, res, { status: 404, error: 'Grade preview not found.' });
+    }
+    try {
+      const preview = await importService.getPreview({ actorId: req.authUser.id, sessionId: req.sessionID, previewId: req.params.previewId });
+      return renderGradeImport(req, res, { preview });
+    } catch (error) {
+      if (error instanceof GradeImportError) return renderGradeImport(req, res, { status: error.status, error: error.message });
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'The grade preview could not be loaded.' });
+    }
+  });
+
+  router.post('/grade-import/:previewId/confirm', requireRole('registrar'), async (req, res) => {
+    if (!hasValidCsrfToken(req)) {
+      return res.status(403).render('error', { title: 'Forbidden', message: 'The form session expired. Reload the page and try again.' });
+    }
+    if (!/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(req.params.previewId)) {
+      return renderGradeImport(req, res, { status: 404, error: 'Grade preview not found.' });
+    }
+    try {
+      const preview = await importService.getPreview({ actorId: req.authUser.id, sessionId: req.sessionID, previewId: req.params.previewId });
+      const decisions = preview.rows.map((row) => {
+        const grades = {};
+        for (const grade of row.grades) {
+          const key = grade.gradingPeriod === 'Term 1' ? 'term1'
+            : grade.gradingPeriod === 'Term 2' ? 'term2'
+              : grade.gradingPeriod === 'Term 3' ? 'term3' : 'final';
+          grades[grade.gradingPeriod] = {
+            action: req.body?.[`action_${row.sourceRow}_${key}`] === 'replace' ? 'replace' : 'skip',
+            reason: req.body?.[`reason_${row.sourceRow}_${key}`]
+          };
+        }
+        return {
+          sourceRow: row.sourceRow,
+          include: req.body?.[`includeRow_${row.sourceRow}`] === 'yes',
+          allowNameMismatch: req.body?.[`overrideName_${row.sourceRow}`] === 'yes',
+          nameReason: req.body?.[`nameReason_${row.sourceRow}`],
+          grades
+        };
+      });
+      const summary = await importService.confirmPreview({
+        actorId: req.authUser.id,
+        sessionId: req.sessionID,
+        previewId: req.params.previewId,
+        decisions
+      });
+      req.session.gradeImportSummary = summary;
+      return res.redirect(303, '/records/grade-import?notice=gradeImportCompleted');
+    } catch (error) {
+      if (error instanceof GradeImportError) return renderGradeImport(req, res, { status: error.status, error: error.message });
+      if (isUniqueConflict(error)) return renderGradeImport(req, res, { status: 409, error: 'A grade changed during confirmation. Upload the workbook again.' });
+      return res.status(503).render('error', { title: 'Service Unavailable', message: 'The grade import could not be confirmed.' });
+    }
+  });
 
   async function renderSubjects(req, res, { status = 200, error = null, values = {} } = {}) {
     try {

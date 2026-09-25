@@ -30,10 +30,17 @@ const OCR_MESSAGES = new Map([
   ['processor_error', 'The local OCR tools could not process this file. Staff review is required.']
 ]);
 const ADVISORY_KEYS_BY_TYPE = new Map([
-  ['report_card', ['linked_student_name', 'possible_school_name', 'apparent_grade_entries']],
+  ['report_card', ['linked_student_name', 'possible_school_name']],
   ['good_moral', ['linked_student_name', 'possible_school_name']],
   ['psa_birth_certificate', ['linked_student_name']]
 ]);
+
+function activeAdvisoryChecks(documentType, checks) {
+  if (!Array.isArray(checks)) return [];
+  return documentType === 'report_card'
+    ? checks.filter((check) => check?.key !== 'apparent_grade_entries')
+    : checks;
+}
 
 function completeAdvisoryChecks(documentType, checks) {
   const expectedKeys = ADVISORY_KEYS_BY_TYPE.get(documentType);
@@ -596,7 +603,7 @@ function createDocumentService({
       try {
         const storedSummary = JSON.parse(validationRow.validation_json);
         outcome = storedSummary?.outcome;
-        advisory = Array.isArray(storedSummary?.advisoryChecks) ? storedSummary.advisoryChecks : [];
+        advisory = activeAdvisoryChecks(document.document_type, storedSummary?.advisoryChecks);
         hasAdvisoryData = completeAdvisoryChecks(document.document_type, advisory);
       } catch {
         // Ignore malformed stored summaries and use a fixed safe fallback.
@@ -717,7 +724,7 @@ function createDocumentService({
       try {
         const summary = JSON.parse(document.validation_json);
         hasSummary = Boolean(summary && typeof summary === 'object');
-        advisoryChecks = Array.isArray(summary?.advisoryChecks) ? summary.advisoryChecks : [];
+        advisoryChecks = activeAdvisoryChecks(document.document_type, summary?.advisoryChecks);
         hasAdvisoryChecks = completeAdvisoryChecks(document.document_type, advisoryChecks);
       } catch {
         // A malformed advisory summary is not allowed to bypass the source inspection decision.

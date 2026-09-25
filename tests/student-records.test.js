@@ -7,6 +7,7 @@ const {
   StudentRecordsError,
   createStudentRecordsService,
   validateStudent,
+  normalizeLrn,
   validateTerm,
   validateSection,
   validateEnrollment
@@ -120,8 +121,12 @@ async function signIn(baseUrl, role) {
 }
 
 test('student record, term, section, and enrollment inputs are bounded and validated', () => {
-  assert.equal(validateStudent({ studentNo: ' S-1 ', firstName: 'Jamie', lastName: 'Lee', birthDate: '2008-02-29' }).studentNo, 'S-1');
-  assert.throws(() => validateStudent({ studentNo: 'S-1', firstName: 'Jamie', lastName: 'Lee', birthDate: '2007-02-29' }), /valid birth date/);
+  assert.equal(validateStudent({ studentNo: ' S-1 ', lrn: '123456789012', firstName: 'Jamie', lastName: 'Lee', birthDate: '2008-02-29' }).studentNo, 'S-1');
+  assert.throws(() => normalizeLrn('12345678901'), /exactly 12 digits/);
+  assert.throws(() => normalizeLrn('12345678901 '), /exactly 12 digits/);
+  assert.equal(validateStudent({ studentNo: 'S-OLD', firstName: 'Jamie', lastName: 'Lee' }, { requireLrn: false }).lrn, null);
+  assert.throws(() => validateStudent({ studentNo: 'S-NEW', firstName: 'Jamie', lastName: 'Lee' }), /LRN must contain exactly 12 digits/);
+  assert.throws(() => validateStudent({ studentNo: 'S-1', lrn: '123456789012', firstName: 'Jamie', lastName: 'Lee', birthDate: '2007-02-29' }), /valid birth date/);
   assert.throws(() => validateStudent({ studentNo: 'S-1', firstName: 'Jamie\nLee', lastName: 'Lee' }), /First name is required/);
   assert.throws(() => validateTerm({ schoolYear: '2026', term: 'A'.repeat(31) }), StudentRecordsError);
   assert.throws(() => validateSection({ name: 'Grade 7', academicTermId: '3x' }), /valid academic term/);
@@ -129,11 +134,11 @@ test('student record, term, section, and enrollment inputs are bounded and valid
   assert.deepEqual(validateEnrollment({ studentId: '5', academicTermId: '4', sectionId: '' }), { studentId: 5, academicTermId: 4, sectionId: null });
 });
 
-test('registrars can set student numbers at creation but only database administrators can change them later', async () => {
-  const input = { studentNo: 'S-13', firstName: 'Jamie', lastName: 'Lee' };
+test('LRN is required for new students, registrars can backfill blanks, and only database administrators can change a recorded LRN', async () => {
+  const input = { studentNo: 'S-13', lrn: '123456789012', firstName: 'Jamie', lastName: 'Lee' };
   const registrarEdit = transactionalService(({ statement }) => {
     if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'registrar' }] };
-    if (statement.includes('FROM dbo.students WITH')) return { recordset: [{ id: 12, status: 'active', student_no: 'S-12' }] };
+    if (statement.includes('FROM dbo.students WITH')) return { recordset: [{ id: 12, status: 'active', student_no: 'S-12', lrn: input.lrn }] };
     throw new Error(`Unexpected query: ${statement}`);
   });
   await assert.rejects(registrarEdit.service.saveStudent(7, 12, input), (error) => {
@@ -154,11 +159,30 @@ test('registrars can set student numbers at creation but only database administr
   });
   assert.equal(await registrarCreate.service.saveStudent(7, null, input), 13);
   assert.equal(registrarCreate.log.queries.find(({ statement }) => statement.includes('INSERT INTO dbo.students')).values.studentNo, 'S-13');
+  assert.equal(registrarCreate.log.queries.find(({ statement }) => statement.includes('INSERT INTO dbo.students')).values.lrn, input.lrn);
   assert.equal(registrarCreate.log.committed, true);
+
+  const registrarBackfill = transactionalService(({ statement }) => {
+    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'registrar' }] };
+    if (statement.includes('FROM dbo.students WITH')) return { recordset: [{ id: 12, status: 'active', student_no: 'S-13', lrn: null }] };
+    if (statement.includes('UPDATE dbo.students')) return { recordset: [] };
+    if (statement.includes('INSERT INTO dbo.audit_logs')) return { recordset: [] };
+    throw new Error(`Unexpected query: ${statement}`);
+  });
+  assert.equal(await registrarBackfill.service.saveStudent(7, 12, input), 12);
+  assert.equal(registrarBackfill.log.queries.find(({ statement }) => statement.includes('UPDATE dbo.students')).values.lrn, input.lrn);
+
+  const registrarLrnChange = transactionalService(({ statement }) => {
+    if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'registrar' }] };
+    if (statement.includes('FROM dbo.students WITH')) return { recordset: [{ id: 12, status: 'active', student_no: 'S-13', lrn: '123456789011' }] };
+    throw new Error(`Unexpected query: ${statement}`);
+  });
+  await assert.rejects(registrarLrnChange.service.saveStudent(7, 12, input), /Only database administrators can change a recorded LRN/);
+  assert.equal(registrarLrnChange.log.queries.some(({ statement }) => statement.includes('UPDATE dbo.students')), false);
 
   const databaseAdminEdit = transactionalService(({ statement }) => {
     if (statement.includes('FROM dbo.users')) return { recordset: [{ id: 7, role: 'database_admin' }] };
-    if (statement.includes('FROM dbo.students WITH')) return { recordset: [{ id: 12, status: 'active', student_no: 'S-12' }] };
+    if (statement.includes('FROM dbo.students WITH')) return { recordset: [{ id: 12, status: 'active', student_no: 'S-12', lrn: '123456789011' }] };
     if (statement.includes('UPDATE dbo.students')) return { recordset: [] };
     if (statement.includes('INSERT INTO dbo.audit_logs')) return { recordset: [] };
     throw new Error(`Unexpected query: ${statement}`);
@@ -166,6 +190,7 @@ test('registrars can set student numbers at creation but only database administr
   assert.equal(await databaseAdminEdit.service.saveStudent(7, 12, input), 12);
   const update = databaseAdminEdit.log.queries.find(({ statement }) => statement.includes('UPDATE dbo.students'));
   assert.equal(update.values.studentNo, 'S-13');
+  assert.equal(update.values.lrn, input.lrn);
   assert.equal(databaseAdminEdit.log.queries.at(-1).values.action, 'database_admin.student_updated');
   assert.equal(databaseAdminEdit.log.committed, true);
 });

@@ -87,8 +87,11 @@
 - Bound PDF page count, worker concurrency, output size, and processing time; recover stale jobs safely.
 - Keep role checks, file storage, and upload limit from Phase 8; do not classify documents or claim authenticity.
 
+## Academic Records - E-Class Record Import
+- Registrar preview and confirmation of cached Term 1–3 and Final Grade values from the corrected SSHS E-Class Record for SY 2026–2027, matched by LRN to existing enrollment and subject context. This is a separate academic-records feature and does not complete or close the Phase 10 policy gate.
+
 ## Phase 10 - Validation Rules
-- Advisory OCR clues for linked student name, possible school-name lines, and apparent report-card grade-entry lines.
+- Advisory OCR clues for linked student name and possible school-name lines; report-card grade-entry suggestions have been removed.
 - Registrar/admin source inspection with immutable verify/correction/reject decisions; only manual verification sets `valid`.
 - Physical Form 137 status history with no new file upload or OCR.
 - Institution-approved required fields, completeness, grading, and format/compliance checks remain pending school approval.

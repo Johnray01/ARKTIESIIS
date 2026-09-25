@@ -63,7 +63,16 @@ function normalizeDate(value) {
   return value;
 }
 
-function validateStudent(input = {}) {
+function normalizeLrn(value, { required = true } = {}) {
+  if ((value === undefined || value === null || value === '') && !required) return null;
+  const lrn = typeof value === 'string' ? value.trim() : '';
+  if (!/^\d{12}$/.test(lrn)) {
+    throw new StudentRecordsError('LRN must contain exactly 12 digits.');
+  }
+  return lrn;
+}
+
+function validateStudent(input = {}, { requireLrn = true } = {}) {
   const studentNo = requiredText(input.studentNo, 'Student number', 50);
   const firstName = requiredText(input.firstName, 'First name', 100);
   const lastName = requiredText(input.lastName, 'Last name', 100);
@@ -77,6 +86,7 @@ function validateStudent(input = {}) {
   }
   return {
     studentNo,
+    lrn: normalizeLrn(input.lrn, { required: requireLrn }),
     firstName,
     middleName: middleName || null,
     lastName,
@@ -254,7 +264,7 @@ function createStudentRecordsService({
     const pool = await getPool();
     const result = await pool.request()
       .input('studentId', sql.Int, id)
-      .query(`SELECT s.id, s.user_id, s.student_no, s.first_name, s.middle_name, s.last_name, s.suffix,
+      .query(`SELECT s.id, s.user_id, s.student_no, s.lrn, s.first_name, s.middle_name, s.last_name, s.suffix,
         s.birth_date, s.sex, s.address, s.phone, s.status, s.created_at, s.updated_at,
         u.is_active AS linked_account_is_active
         FROM dbo.students AS s LEFT JOIN dbo.users AS u ON u.id = s.user_id WHERE s.id = @studentId`);
@@ -300,11 +310,12 @@ function createStudentRecordsService({
   async function saveStudent(actorId, studentId, input) {
     const id = studentId === null ? null : normalizeRecordId(studentId);
     if (studentId !== null && !id) throw new StudentRecordsError('Student record not found.', 404);
-    const student = validateStudent(input);
+    const student = validateStudent(input, { requireLrn: id === null });
     return runTransaction(async (transaction) => {
       const actor = await requireAcademicActor(transaction, actorId);
       const request = transaction.request()
         .input('studentNo', sql.NVarChar(50), student.studentNo)
+        .input('lrn', sql.NVarChar(12), student.lrn)
         .input('firstName', sql.NVarChar(100), student.firstName)
         .input('middleName', sql.NVarChar(100), student.middleName)
         .input('lastName', sql.NVarChar(100), student.lastName)
@@ -315,22 +326,31 @@ function createStudentRecordsService({
         .input('phone', sql.NVarChar(50), student.phone);
       let savedId;
       if (id === null) {
-        const result = await request.query(`INSERT INTO dbo.students
-          (student_no, first_name, middle_name, last_name, suffix, birth_date, sex, address, phone)
-          OUTPUT INSERTED.id AS id
-          VALUES (@studentNo, @firstName, @middleName, @lastName, @suffix, @birthDate, @sex, @address, @phone)`);
+        const result = await request.query(`DECLARE @insertedStudents TABLE (id INT);
+          INSERT INTO dbo.students
+          (student_no, lrn, first_name, middle_name, last_name, suffix, birth_date, sex, address, phone)
+          OUTPUT INSERTED.id INTO @insertedStudents(id)
+          VALUES (@studentNo, @lrn, @firstName, @middleName, @lastName, @suffix, @birthDate, @sex, @address, @phone);
+          SELECT id FROM @insertedStudents`);
         savedId = result.recordset?.[0]?.id;
         if (!savedId) throw new Error('Student record insert returned no identifier.');
       } else {
         const current = await transaction.request().input('studentId', sql.Int, id)
-          .query('SELECT id, status, student_no FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
+          .query('SELECT id, status, student_no, lrn FROM dbo.students WITH (UPDLOCK, HOLDLOCK) WHERE id = @studentId');
         if (!current.recordset?.length) throw new StudentRecordsError('Student record not found.', 404);
         if (current.recordset[0].status === 'archived') throw new StudentRecordsError('Archived student profiles cannot be edited.', 409);
         if (actor.role === 'registrar' && student.studentNo !== current.recordset[0].student_no) {
           throw new StudentRecordsError('Only database administrators can change a student number.', 403);
         }
+        const currentLrn = current.recordset[0].lrn || null;
+        if (actor.role === 'registrar' && currentLrn && student.lrn !== currentLrn) {
+          throw new StudentRecordsError('Only database administrators can change a recorded LRN.', 403);
+        }
+        if (currentLrn && !student.lrn) {
+          throw new StudentRecordsError('A recorded LRN cannot be cleared. Enter its replacement LRN.', 400);
+        }
         await request.input('studentId', sql.Int, id).query(`UPDATE dbo.students
-          SET student_no = @studentNo, first_name = @firstName, middle_name = @middleName,
+          SET student_no = @studentNo, lrn = @lrn, first_name = @firstName, middle_name = @middleName,
             last_name = @lastName, suffix = @suffix, birth_date = @birthDate,
             sex = @sex, address = @address, phone = @phone, updated_at = SYSUTCDATETIME()
           WHERE id = @studentId`);
@@ -548,6 +568,7 @@ module.exports = {
   normalizeRecordId,
   normalizeSearchTerm,
   validateStudent,
+  normalizeLrn,
   validateTerm,
   validateSection,
   validateEnrollment,

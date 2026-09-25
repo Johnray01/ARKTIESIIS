@@ -28,10 +28,6 @@ function possibleSchoolNameFound(extractedText) {
   return findPossibleSchoolNames(extractedText).length > 0;
 }
 
-function apparentGradeEntriesFound(extractedText) {
-  return findApparentGradeEntries(extractedText).length > 0;
-}
-
 function candidateLines(extractedText, predicate) {
   return String(extractedText).split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, ' ').trim())
@@ -44,15 +40,6 @@ function findPossibleSchoolNames(extractedText) {
   return candidateLines(extractedText, (line) => /\b(?:school|academy|college|university|institute|educational|education|learning center)\b/i.test(line));
 }
 
-function findApparentGradeEntries(extractedText) {
-  return candidateLines(extractedText, (line) => {
-    const hasGradeLabel = /\b(?:grade|grades|final grade|average|mark|score|rating)\b/i.test(line);
-    const hasGradeLikeValue = /\b(?:[a-f][+-]?|\d{1,3}(?:\.\d+)?\s*%?)\b/i.test(line);
-    const hasSubjectAndValue = /[a-z]{3,}.*\s(?:[a-f][+-]?|\d{1,3}(?:\.\d+)?\s*%?)$/i.test(line);
-    return (hasGradeLabel && hasGradeLikeValue) || hasSubjectAndValue;
-  });
-}
-
 function advisoryChecks(documentType, extractedText, student) {
   const checks = [{
     key: 'linked_student_name',
@@ -62,8 +49,7 @@ function advisoryChecks(documentType, extractedText, student) {
 
   if (documentType === 'report_card') {
     checks.push(
-      { key: 'possible_school_name', label: 'Possible school name', found: possibleSchoolNameFound(extractedText), candidates: findPossibleSchoolNames(extractedText) },
-      { key: 'apparent_grade_entries', label: 'Apparent grade entries', found: apparentGradeEntriesFound(extractedText), candidates: findApparentGradeEntries(extractedText) }
+      { key: 'possible_school_name', label: 'Possible school name', found: possibleSchoolNameFound(extractedText), candidates: findPossibleSchoolNames(extractedText) }
     );
   } else if (documentType === 'good_moral') {
     checks.push({ key: 'possible_school_name', label: 'Possible school name', found: possibleSchoolNameFound(extractedText), candidates: findPossibleSchoolNames(extractedText) });
@@ -95,7 +81,5 @@ module.exports = {
   validateRequiredText,
   linkedStudentNameFound,
   possibleSchoolNameFound,
-  apparentGradeEntriesFound,
-  findPossibleSchoolNames,
-  findApparentGradeEntries
+  findPossibleSchoolNames
 };

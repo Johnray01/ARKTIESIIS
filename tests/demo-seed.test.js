@@ -47,7 +47,7 @@ function makeSeedDatabase({ collideWithStudent = false, collideWithStaff = false
             state.markerExists = true;
             return { recordset: [] };
           }
-          if (statement.includes('OUTPUT INSERTED.id AS id')) return { recordset: [{ id: state.nextId++ }] };
+          if (statement.includes('OUTPUT INSERTED.id')) return { recordset: [{ id: state.nextId++ }] };
           return { recordset: [] };
         }
       };

@@ -22,6 +22,7 @@ const notices = {
 function studentValues(input = {}) {
   return {
     studentNo: typeof input.studentNo === 'string' ? input.studentNo.slice(0, 50) : '',
+    lrn: typeof input.lrn === 'string' ? input.lrn.slice(0, 12) : '',
     firstName: typeof input.firstName === 'string' ? input.firstName.slice(0, 100) : '',
     middleName: typeof input.middleName === 'string' ? input.middleName.slice(0, 100) : '',
     lastName: typeof input.lastName === 'string' ? input.lastName.slice(0, 100) : '',
@@ -36,6 +37,7 @@ function studentValues(input = {}) {
 function valuesFromStudent(student) {
   return studentValues({
     studentNo: student.student_no,
+    lrn: student.lrn,
     firstName: student.first_name,
     middleName: student.middle_name,
     lastName: student.last_name,
@@ -131,7 +133,7 @@ function createStudentRecordsRouter({ getPool, sql, studentRecordsService } = {}
       return res.redirect(303, `/records/students/${studentId}/edit?notice=studentCreated`);
     } catch (error) {
       if (error instanceof StudentRecordsError) return renderStudentForm(req, res, { values, error: error.message, status: error.status });
-      if (isUniqueStudentConflict(error)) return renderStudentForm(req, res, { values, error: 'That student number is already in use.', status: 409 });
+      if (isUniqueStudentConflict(error)) return renderStudentForm(req, res, { values, error: 'That student number or LRN is already in use.', status: 409 });
       return res.status(503).render('error', { title: 'Service Unavailable', message: 'The student profile could not be created.' });
     }
   });
@@ -154,7 +156,7 @@ function createStudentRecordsRouter({ getPool, sql, studentRecordsService } = {}
       return res.redirect(303, `/records/students/${studentId}/edit?notice=studentUpdated`);
     } catch (error) {
       if (error instanceof StudentRecordsError) return renderStudentForm(req, res, { studentId, values, error: error.message, status: error.status });
-      if (isUniqueStudentConflict(error)) return renderStudentForm(req, res, { studentId, values, error: 'That student number is already in use.', status: 409 });
+      if (isUniqueStudentConflict(error)) return renderStudentForm(req, res, { studentId, values, error: 'That student number or LRN is already in use.', status: 409 });
       return res.status(503).render('error', { title: 'Service Unavailable', message: 'The student profile could not be updated.' });
     }
   });

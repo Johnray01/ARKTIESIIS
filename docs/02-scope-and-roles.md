@@ -18,7 +18,8 @@
 ## Registrar
 - Student information management.
 - Enrollment and academic history.
-- Create and update student profiles, enrollment history, the subject catalog, subject assignments, and grades by grading period.
+- Create and update student profiles, enrollment history, the subject catalog, subject assignments, and grades by grading period. Registrars can add an LRN to a legacy profile when blank; only database administrators can change a recorded LRN.
+- Preview and confirm grade imports from the corrected SSHS E-Class Record for SY 2026–2027, matched by LRN to existing school-year enrollment and subject assignments.
 - Student master list.
 - Deactivate linked student login accounts without archiving the student master record.
 - Authorized document management and review.
@@ -54,4 +55,4 @@ Initial approved types:
 
 Students may upload only Good Moral Certificates and report cards. Registrar/database administrator users may upload Good Moral Certificates, report cards, and PSA birth certificates. Students may view/download only a staff-uploaded PSA file belonging to their own record. Form 137 is a physical status workflow for registrar/database administrator users; it records pending, received, verified, correction, or rejected status and contains no new upload or OCR step. Historical Form 137 files are restricted to staff.
 
-The uploader chooses the document type before upload. Digital OCR suggestions are advisory: they look for the linked student name, a possible school-name line, and apparent grade-entry lines on report cards; the linked student name and possible school-name line on Good Moral Certificates; and the linked student name on PSA certificates. They do not use a school-name whitelist, grading thresholds, completeness rules, or automatic acceptance. A registrar/database administrator inspects each digital source and records verification, a correction request, or rejection. A reason is required to verify after an OCR failure or a missed advisory check. OCR does not classify documents or claim to prove authenticity, detect forgery, verify signatures or seals, or perform forensic analysis. These are capstone leader implementation decisions, not school policy; school approval is still required for policy-dependent Phase 10 acceptance checks.
+The uploader chooses the document type before upload. Digital OCR suggestions are advisory: they look for the linked student name and a possible school-name line on report cards and Good Moral Certificates, and the linked student name on PSA certificates. They do not use a school-name whitelist, grading thresholds, completeness rules, or automatic acceptance. A registrar/database administrator inspects each digital source and records verification, a correction request, or rejection. A reason is required to verify after an OCR failure or a missed advisory check. OCR does not classify documents or claim to prove authenticity, detect forgery, verify signatures or seals, or perform forensic analysis. These are capstone leader implementation decisions, not school policy; school approval is still required for policy-dependent Phase 10 acceptance checks.

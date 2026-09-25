@@ -271,7 +271,14 @@ test('OCR details are fetched only for registrar and database administrator docu
               id: 4,
               processor: 'Tesseract OCR',
               extracted_text: '<script>unsafe OCR text</script>',
-              validation_json: JSON.stringify({ outcome: 'extracted', message: 'ignored untrusted message' }),
+              validation_json: JSON.stringify({
+                outcome: 'extracted', message: 'ignored untrusted message',
+                advisoryChecks: [
+                  { key: 'linked_student_name', found: true },
+                  { key: 'possible_school_name', found: true, candidates: ['Other Academy'] },
+                  { key: 'apparent_grade_entries', found: false, candidates: ['Mathematics 59'] }
+                ]
+              }),
               result_status: 'needs_review',
               created_at: new Date()
             }] : [] };
@@ -291,6 +298,8 @@ test('OCR details are fetched only for registrar and database administrator docu
   const registrar = await readAsRole('registrar');
   assert.equal(registrar.result.validation.extracted_text, '<script>unsafe OCR text</script>');
   assert.equal(registrar.result.validation.message, 'OCR text was extracted. Advisory checks are available; registrar or database administrator source inspection is required.');
+  assert.deepEqual(registrar.result.validation.advisoryChecks.map(({ key }) => key), ['linked_student_name', 'possible_school_name']);
+  assert.equal(registrar.result.validation.requiresOverrideReason, false, 'retired grade-entry OCR suggestions no longer affect review');
   const validationQuery = registrar.queries.find(({ statement }) => statement.includes('FROM dbo.document_validations'));
   assert.ok(validationQuery);
   assert.match(validationQuery.statement, /id = @actorId AND is_active = 1 AND role IN \('registrar', 'database_admin'\)/);
@@ -563,8 +572,7 @@ test('OCR failure and legacy OCR without advisory results require an override re
     actorRole: 'registrar',
     validationJson: JSON.stringify({ advisoryChecks: [
       { key: 'linked_student_name', found: true },
-      { key: 'possible_school_name', found: true },
-      { key: 'apparent_grade_entries', found: true }
+      { key: 'possible_school_name', found: true }
     ] })
   });
   await assert.rejects(malformedCandidates.service.decideDocument(7, '12', 'verified'), /reason to verify/);

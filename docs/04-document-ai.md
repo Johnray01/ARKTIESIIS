@@ -6,7 +6,7 @@
 2. The server checks the role, file type, and size, then saves the immutable submission privately as `pending`.
 3. A background worker atomically claims pending submissions from SQL Server and changes them to `processing`.
 4. Installed local Tesseract and Poppler command-line tools extract text from JPEG/PNG uploads and PDFs.
-5. ARKTIESIIS records advisory OCR suggestions for linked student-name text, a possible school-name line, and apparent grade-entry lines, depending on the selected digital document type.
+5. ARKTIESIIS records advisory OCR suggestions for linked student-name text and possible school-name lines, depending on the selected digital document type.
 6. The OCR result and suggestions are attached to that immutable submission and shown only to registrar/database administrator users. Staff inspect the source file and manually verify, request correction, or reject it.
 
 ## Local tools and runtime configuration
@@ -21,11 +21,11 @@ Uploads remain private. OCR first copies a verified regular file to a private te
 
 The current capstone leader-directed implementation suggestions check for these OCR-readable clues:
 
-- Report card: linked student name, up to three possible school-name lines, and up to three apparent grade-entry lines.
+- Report card: linked student name and up to three possible school-name lines.
 - Good Moral Certificate: linked student name and up to three possible school-name lines.
 - PSA birth certificate: linked student name.
 
-Candidate lines are bounded and HTML-escaped. “Possible” and “apparent” are intentional: the OCR suggestions do not confirm an institution name, grade, or document requirement. There is no school-name whitelist, grade threshold, completeness check, format rule, or automatic acceptance. Each digital submission requires staff source inspection and a manual decision. A reason is required to verify despite a failed OCR result or a missed advisory check. Only the manual `verified` decision sets `documents.status` to `valid`.
+Candidate lines are bounded and HTML-escaped. “Possible” is intentional: an OCR suggestion does not confirm an institution name or document requirement. There is no school-name whitelist, grade threshold, completeness check, format rule, or automatic acceptance. Each digital submission requires staff source inspection and a manual decision. A reason is required to verify despite a failed OCR result or a missed advisory check. Only the manual `verified` decision sets `documents.status` to `valid`.
 
 These advisory checks and decision controls are capstone leader implementation choices, not institutional policy. School approval is still required for any policy-dependent Phase 10 acceptance checks. No document is accepted automatically.
 
@@ -55,3 +55,13 @@ OCR text, candidate lines, and advisory details are available only to registrars
 Automated tests cover the local adapter and queue behavior. Run `npm run ocr:smoke` to check installed binaries and English data against synthetic JPEG, PNG, and two-page PDF samples, including page order and temporary-file cleanup. The live runtime acceptance gate remains pending until the native Tesseract/Poppler binaries and English trained data are installed and the smoke command passes on Windows with the configured paths, including paths containing spaces. Timeout and failure handling are covered by automated tests.
 
 Tesseract provides OCR/text extraction; Poppler renders PDF pages. Node.js handles queueing, private storage, status normalization, access control, and later validation rules. No cloud document-processing API, custom model, or forensic analysis is in scope.
+
+## SSHS E-Class Record grade import
+
+The registrar-only grade import accepts the corrected SSHS E-Class Record for SY 2026–2027. It reads cached Term 1, Term 2, Term 3, and Final Grade values from the workbook and does not recalculate formulas. Blank formula caches make the affected learner row ineligible; recalculate and save the workbook in Excel before uploading it again. The parser uses the workbook in memory, clears the upload buffer after preview creation, and never stores the workbook file.
+
+Before upload, a registrar chooses an existing 2026–2027 school-year, grade-level, section, and subject context. The preview compares this selection with the workbook context and matches learners by a unique 12-digit LRN to active students and exactly one existing enrollment and assigned subject. Missing/ambiguous matches, incomplete cached grades, duplicate workbook LRNs, and context mismatches are excluded for roster correction and reupload. The preview shows student number and database name; an LRN match with a name difference requires a registrar review checkbox and reason. Every row must be explicitly included. Different existing grades are kept unless the registrar chooses replacement with a reason; equal values are left unchanged.
+
+Preview data is private and tied to the uploader's session. It becomes inaccessible after 30 minutes and is deleted when confirmation completes; expired rows are removed opportunistically on the next grade-import request. No timed SQL cleanup job is configured. Confirmation rechecks the active registrar role, student identity, enrollment, assignment, and existing grade state in a serializable SQL Server transaction. The audit record contains counts and recorded review reasons, not raw LRNs or grade values. Migration `007_student_lrn.sql` adds nullable unique LRNs for existing rows; new student records require an LRN. Registrars may backfill a blank LRN, while only database administrators may change a recorded value.
+
+This import's fixed 0–100 range and four period names are implementation constraints for the approved workbook, not an institution-wide grading policy. The Phase 10 school-policy gate remains open; policy-dependent validation and Phase 10 completion still require institutional approval.

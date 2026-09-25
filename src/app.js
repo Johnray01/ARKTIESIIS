@@ -10,7 +10,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const projectRoot = path.resolve(__dirname, '..');
 
-function createApp({ databasePool = getPool, environment = env, twoFactorService, adminService, studentRecordsService, academicRecordsService, financeService, documentService, documentProcessingService, form137ScanService } = {}) {
+function createApp({ databasePool = getPool, environment = env, twoFactorService, adminService, studentRecordsService, academicRecordsService, gradeImportService, financeService, documentService, documentProcessingService, form137ScanService } = {}) {
   const app = express();
 
   app.set('view engine', 'ejs');
@@ -18,7 +18,7 @@ function createApp({ databasePool = getPool, environment = env, twoFactorService
 
   app.use(helmet());
   app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 500 }));
-  app.use(express.urlencoded({ extended: false }));
+  app.use(express.urlencoded({ extended: false, parameterLimit: 1200, limit: '300kb' }));
   app.use(express.json());
   app.use(express.static(path.join(projectRoot, 'public')));
 
@@ -34,7 +34,7 @@ function createApp({ databasePool = getPool, environment = env, twoFactorService
     }
   }));
 
-  app.use(createRouter({ getPool: databasePool, environment, twoFactorService, adminService, studentRecordsService, academicRecordsService, financeService, documentService, documentProcessingService, form137ScanService }));
+  app.use(createRouter({ getPool: databasePool, environment, twoFactorService, adminService, studentRecordsService, academicRecordsService, gradeImportService, financeService, documentService, documentProcessingService, form137ScanService }));
 
   app.use((req, res) => {
     res.status(404).render('error', {
