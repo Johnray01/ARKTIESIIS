@@ -1102,6 +1102,120 @@ test('HTTP document routes enforce role matrix and CSRF before writes', async ()
   });
 });
 
+test('document routes stream authorized downloads and hide upload, re-upload, and download failures', async () => {
+  const passwordHash = await bcrypt.hash('Correct-Horse-Battery-12', 4);
+  const users = ['student', 'finance'].map((role, index) => ({
+    id: index + 1,
+    email: `${role}@example.edu`,
+    password_hash: passwordHash,
+    role,
+    is_active: true
+  }));
+  const uploadBuffers = [];
+  const reuploadBuffers = [];
+  const downloadCalls = [];
+  const contents = Buffer.from('%PDF-1.7\nprivate test report');
+  const directory = await temporaryDirectory();
+  const filePath = path.join(directory, 'opaque-stored-name.pdf');
+
+  try {
+    await fs.writeFile(filePath, contents, { mode: 0o600 });
+    const documentService = {
+      async listDocuments(actorId) {
+        return {
+          documents: [], searchTerm: '', isStaff: actorId !== 1,
+          form137Status: { status: 'not_recorded', instruction: null, created_at: null }
+        };
+      },
+      async upload(_actorId, _body, file) {
+        uploadBuffers.push(file.buffer);
+        throw new Error('database connection secret');
+      },
+      async reupload(_actorId, _documentId, file) {
+        reuploadBuffers.push(file.buffer);
+        throw new Error('database connection secret');
+      },
+      async openDownload(actorId, documentId) {
+        downloadCalls.push([actorId, documentId]);
+        if (documentId === '404') throw new DocumentServiceError('Document not found.', 404);
+        if (documentId !== '88') throw new Error('database connection secret');
+        return {
+          document: { original_filename: 'Quarter 1 report.pdf', mime_type: 'application/pdf' },
+          fileHandle: await fs.open(filePath, 'r'),
+          size: contents.length
+        };
+      }
+    };
+    const app = createApp({
+      databasePool: authPool(users),
+      environment: { nodeEnv: 'development', devPasswordOnlyLogin: true, sessionSecret: 'phase-thirteen-document-route-test-secret' },
+      documentService,
+      documentProcessingService: { schedulePendingProcessing() {} },
+      form137ScanService: { async scan() { throw new Error('Form 137 scan is outside this test.'); } }
+    });
+
+    await withServer(app, async (baseUrl) => {
+      const studentCookie = await login(baseUrl, 'student@example.edu');
+      const listResponse = await fetch(`${baseUrl}/documents`, { headers: { cookie: studentCookie } });
+      assert.equal(listResponse.status, 200);
+      const csrfToken = csrfFromHtml(await listResponse.text());
+
+      const upload = new FormData();
+      upload.set('_csrf', csrfToken);
+      upload.set('documentType', 'report_card');
+      upload.set('document', new Blob([Buffer.from('%PDF-1.7\nupload')], { type: 'application/pdf' }), 'report.pdf');
+      const failedUpload = await fetch(`${baseUrl}/documents`, {
+        method: 'POST', headers: { cookie: studentCookie }, body: upload, redirect: 'manual'
+      });
+      const failedUploadHtml = await failedUpload.text();
+      assert.equal(failedUpload.status, 503);
+      assert.match(failedUploadHtml, /The document could not be uploaded\./);
+      assert.doesNotMatch(failedUploadHtml, /database connection secret/);
+      assert.ok(uploadBuffers[0].every((byte) => byte === 0), 'failed uploads clear the multipart buffer');
+
+      const correction = new FormData();
+      correction.set('_csrf', csrfToken);
+      correction.set('document', new Blob([Buffer.from('%PDF-1.7\ncorrected')], { type: 'application/pdf' }), 'corrected.pdf');
+      const failedReupload = await fetch(`${baseUrl}/documents/88/reupload`, {
+        method: 'POST', headers: { cookie: studentCookie }, body: correction, redirect: 'manual'
+      });
+      const failedReuploadHtml = await failedReupload.text();
+      assert.equal(failedReupload.status, 503);
+      assert.match(failedReuploadHtml, /The corrected document could not be uploaded\./);
+      assert.doesNotMatch(failedReuploadHtml, /database connection secret/);
+      assert.ok(reuploadBuffers[0].every((byte) => byte === 0), 'failed re-uploads clear the multipart buffer');
+
+      const financeCookie = await login(baseUrl, 'finance@example.edu');
+      const deniedDownload = await fetch(`${baseUrl}/documents/88/download`, { headers: { cookie: financeCookie } });
+      assert.equal(deniedDownload.status, 403);
+      assert.deepEqual(downloadCalls, [], 'finance is denied before the file service is called');
+
+      const downloaded = await fetch(`${baseUrl}/documents/88/download`, { headers: { cookie: studentCookie } });
+      assert.equal(downloaded.status, 200);
+      assert.equal(downloaded.headers.get('content-type'), 'application/pdf');
+      assert.equal(downloaded.headers.get('content-length'), String(contents.length));
+      assert.match(downloaded.headers.get('content-disposition'), /filename="document\.pdf"/);
+      assert.match(downloaded.headers.get('content-disposition'), /filename\*=UTF-8''Quarter%201%20report\.pdf/);
+      assert.equal(downloaded.headers.get('cache-control'), 'private, no-store');
+      assert.equal(downloaded.headers.get('x-content-type-options'), 'nosniff');
+      assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), contents);
+
+      const missing = await fetch(`${baseUrl}/documents/404/download`, { headers: { cookie: studentCookie } });
+      assert.equal(missing.status, 404);
+      assert.match(await missing.text(), /Document not found\./);
+
+      const failedDownload = await fetch(`${baseUrl}/documents/500/download`, { headers: { cookie: studentCookie } });
+      const failedDownloadHtml = await failedDownload.text();
+      assert.equal(failedDownload.status, 503);
+      assert.match(failedDownloadHtml, /The document could not be downloaded\./);
+      assert.doesNotMatch(failedDownloadHtml, /database connection secret/);
+      assert.deepEqual(downloadCalls, [[1, '88'], [1, '404'], [1, '500']]);
+    });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('download authorization hides missing or non-owned document identifiers', async () => {
   const calls = [];
   const pool = async () => ({

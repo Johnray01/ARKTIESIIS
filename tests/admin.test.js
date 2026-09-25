@@ -267,6 +267,93 @@ test('account creation writes profile and audit event in one transaction without
   assert.equal(JSON.stringify(auditCall.values).includes('bcrypt-hash-value'), false);
 });
 
+test('database administrator read matrix permits staff workspaces and denies student self-service in a mocked HTTP app', async () => {
+  const calls = [];
+  const studentRecordsService = {
+    async listWorkspace(search, termId) {
+      calls.push(['listWorkspace', search, termId]);
+      return { students: [], terms: [], sections: [], searchTerm: '', academicTermId: null };
+    },
+    async getOwnStudentRecord() {
+      calls.push(['getOwnStudentRecord']);
+      return null;
+    },
+    async getStudentDashboardSummary() {
+      calls.push(['getStudentDashboardSummary']);
+      return null;
+    }
+  };
+  const documentService = {
+    async listDocuments(actorId) {
+      calls.push(['listDocuments', actorId]);
+      return { documents: [], searchTerm: '', isStaff: true, form137Status: { status: 'not_recorded', instruction: null, created_at: null } };
+    }
+  };
+  const financeService = {
+    async searchStudents(searchTerm) {
+      calls.push(['searchFinanceStudents', searchTerm]);
+      return { students: [], searchTerm: '' };
+    },
+    async getDashboardSummary(actorId) {
+      calls.push(['financeSummary', actorId]);
+      return {};
+    }
+  };
+  const adminService = {
+    async listDashboard(searchTerm) {
+      calls.push(['listDashboard', searchTerm]);
+      return { users: [], auditLogs: [], searchTerm };
+    },
+    async getDashboardSummary(actorId) {
+      calls.push(['getDashboardSummary', actorId]);
+      return {
+        active_user_count: 4,
+        inactive_user_count: 1,
+        active_student_count: 3,
+        archived_student_count: 0,
+        documents_awaiting_review_count: 2
+      };
+    }
+  };
+
+  const app = createApp({
+    databasePool: createAuthPool('database_admin'),
+    environment: testEnvironment,
+    adminService,
+    studentRecordsService,
+    financeService,
+    documentService,
+    documentProcessingService: { schedulePendingProcessing() {} },
+    form137ScanService: { async scan() { throw new Error('No scan operation is expected in this read-only matrix.'); } }
+  });
+
+  await withServer(app, async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'database_admin@example.edu');
+    const cases = [
+      ['/admin', 200, /Database Admin Dashboard/],
+      ['/records', 200, /Student Records/],
+      ['/documents', 200, /Documents/],
+      ['/finance', 200, /Finance Workspace/],
+      ['/dashboard/student', 403, null]
+    ];
+
+    for (const [route, expectedStatus, expectedContent] of cases) {
+      const response = await fetch(`${baseUrl}${route}`, { headers: { cookie } });
+      assert.equal(response.status, expectedStatus, `${route} should return HTTP ${expectedStatus}`);
+      if (expectedContent) assert.match(await response.text(), expectedContent);
+    }
+
+    assert.deepEqual(calls, [
+      ['listDashboard', ''],
+      ['getDashboardSummary', 7],
+      ['listWorkspace', '', ''],
+      ['listDocuments', 7],
+      ['searchFinanceStudents', ''],
+      ['financeSummary', 7]
+    ], 'only read services for database-admin workspaces run; student self-service stays denied');
+  });
+});
+
 test('non-admin role receives 403 for admin routes without loading admin data', async () => {
   let dashboardReads = 0;
   const adminService = { async listDashboard() { dashboardReads += 1; return { users: [], auditLogs: [] }; } };
