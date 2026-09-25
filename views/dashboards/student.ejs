@@ -6,6 +6,18 @@
       <p>ARKTIESIIS workspace</p>
     </div>
   </section>
+  <% if (summary) { %>
+    <section class="dashboard-summary" aria-label="Your student summary">
+      <dl class="dashboard-summary-grid">
+        <div><dt>Enrollment records</dt><dd><%= summary.enrollment_count %></dd></div>
+        <div><dt>Grade entries</dt><dd><%= summary.grade_entry_count %></dd></div>
+        <div><dt>Permitted documents</dt><dd><%= summary.document_count %></dd></div>
+        <div><dt>Documents awaiting OCR or staff review</dt><dd><%= summary.documents_in_progress_count %></dd></div>
+      </dl>
+      <p class="dashboard-summary-note">Document totals include your Good Moral Certificates, report cards, and staff-uploaded PSA birth certificates. OCR results are advisory; staff review is required for acceptance.</p>
+      <a class="button button--secondary" href="/documents">View my documents</a>
+    </section>
+  <% } %>
   <% if (ownRecords) { %>
     <section class="admin-section" aria-labelledby="profile-title">
       <div class="admin-section__heading"><div><h2 id="profile-title">Profile</h2><p>Your profile details and academic records linked to this account.</p></div></div>

@@ -40,10 +40,14 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
 
   async function renderWorkspace(req, res, { status = 200, searchTerm = req.query.search || '', searchError = null } = {}) {
     try {
-      const result = await service.searchStudents(searchTerm);
+      const [result, summary] = await Promise.all([
+        service.searchStudents(searchTerm),
+        service.getDashboardSummary?.(req.authUser.id) || null
+      ]);
       return res.status(status).render('finance/workspace', {
         title: 'Finance Workspace',
         currentUser: req.authUser,
+        summary,
         csrfToken: ensureCsrfToken(req),
         searchTerm: result.searchTerm,
         searchSuffix: result.searchTerm ? `?search=${encodeURIComponent(result.searchTerm)}` : '',
@@ -59,7 +63,7 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
     } catch (error) {
       if (error instanceof FinanceServiceError) {
         return res.status(error.status).render('finance/workspace', {
-          title: 'Finance Workspace', currentUser: req.authUser, csrfToken: ensureCsrfToken(req), searchTerm: '', students: [],
+          title: 'Finance Workspace', currentUser: req.authUser, csrfToken: ensureCsrfToken(req), summary: null, searchTerm: '', students: [],
           searchSuffix: '',
           searchError: error.message, student: null, account: null, transactions: [], error: null,
           notice: null, transactionValues: formValues()

@@ -238,6 +238,25 @@ function createAdminService({
     return { users: users.recordset || [], auditLogs: auditLogs.recordset || [], searchTerm };
   }
 
+  async function getDashboardSummary(actorInput) {
+    const actorId = normalizeUserId(actorInput);
+    if (!actorId) throw new AdminServiceError('Database administrator dashboard access is required.', 403);
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('actorId', sql.Int, actorId)
+      .query(`SELECT
+          (SELECT COUNT_BIG(*) FROM dbo.users WHERE is_active = 1) AS active_user_count,
+          (SELECT COUNT_BIG(*) FROM dbo.users WHERE is_active = 0) AS inactive_user_count,
+          (SELECT COUNT_BIG(*) FROM dbo.students WHERE status = 'active') AS active_student_count,
+          (SELECT COUNT_BIG(*) FROM dbo.students WHERE status = 'archived') AS archived_student_count,
+          (SELECT COUNT_BIG(*) FROM dbo.documents WHERE status IN ('needs_review', 'failed')) AS documents_awaiting_review_count
+        WHERE EXISTS (SELECT 1 FROM dbo.users
+          WHERE id = @actorId AND role = 'database_admin' AND is_active = 1)`);
+    const summary = result.recordset?.[0];
+    if (!summary) throw new AdminServiceError('Your administrator access is no longer active. Sign in again.', 403);
+    return summary;
+  }
+
   async function getUser(userId) {
     const id = normalizeUserId(userId);
     if (!id) throw new AdminServiceError('Account not found.', 404);
@@ -344,7 +363,7 @@ function createAdminService({
     });
   }
 
-  return { listDashboard, getUser, createUser, updateUser, resetPassword };
+  return { listDashboard, getDashboardSummary, getUser, createUser, updateUser, resetPassword };
 }
 
 module.exports = {

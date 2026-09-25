@@ -15,6 +15,18 @@
   <% } %>
 
   <% if (!student) { %>
+    <% if (summary) { %>
+      <section class="dashboard-summary" aria-label="Finance summary">
+        <dl class="dashboard-summary-grid">
+          <div><dt>Financial accounts</dt><dd><%= summary.account_count %></dd></div>
+          <div><dt>Accounts with a balance due</dt><dd><%= summary.accounts_due_count %></dd></div>
+          <div><dt>Settled accounts</dt><dd><%= summary.accounts_settled_count %></dd></div>
+          <div><dt>Accounts with a credit balance</dt><dd><%= summary.accounts_credit_count %></dd></div>
+          <div><dt>Recorded charges</dt><dd><%= summary.charge_count %></dd></div>
+          <div><dt>Recorded payments</dt><dd><%= summary.payment_count %></dd></div>
+        </dl>
+      </section>
+    <% } %>
     <section class="finance-panel" aria-labelledby="finance-search-heading">
       <h2 id="finance-search-heading">Find a student</h2>
       <form class="finance-search" method="get" action="/finance">

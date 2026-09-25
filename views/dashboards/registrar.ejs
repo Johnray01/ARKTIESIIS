@@ -6,9 +6,29 @@
       <p>ARKTIESIIS workspace</p>
     </div>
   </section>
-  <section class="placeholder-state" aria-labelledby="placeholder-title">
-    <h2 id="placeholder-title">Academic records workspace</h2>
-    <p>Manage student profiles, enrollment history, the subject catalog, and grades. Grade entries are associated with an enrolled subject and a grading period.</p>
+  <% if (summary) { %>
+    <section class="dashboard-summary" aria-label="Registrar summary">
+      <dl class="dashboard-summary-grid">
+        <div><dt>Active student records</dt><dd><%= summary.active_student_count %></dd></div>
+        <div><dt>Archived student records</dt><dd><%= summary.archived_student_count %></dd></div>
+        <div><dt>Current enrollments</dt><dd><%= summary.current_enrollment_count %></dd></div>
+        <div><dt>Documents awaiting staff review</dt><dd><%= summary.documents_awaiting_review_count %></dd></div>
+        <div><dt>Documents queued or processing OCR</dt><dd><%= summary.documents_processing_count %></dd></div>
+      </dl>
+    </section>
+  <% } %>
+  <section class="admin-section" aria-labelledby="academic-workspace-title">
+    <div class="admin-section__heading">
+      <div>
+        <h2 id="academic-workspace-title">Academic records workspace</h2>
+        <p>Manage student profiles, enrollment history, the subject catalog, and grades. Grade entries are associated with an enrolled subject and a grading period.</p>
+      </div>
+    </div>
+    <nav class="admin-heading-actions" aria-label="Registrar workspaces">
+      <a class="button button--secondary" href="/records">Student records</a>
+      <a class="button button--secondary" href="/documents">Document review</a>
+      <a class="button button--secondary" href="/records/subjects">Subject catalog</a>
+    </nav>
   </section>
 </main>
 <%- include('../partials/foot') %>

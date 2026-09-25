@@ -333,14 +333,18 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
 
   router.get('/dashboard/student', requireAuth, requireRole('student'), async (req, res) => {
     try {
-      const ownRecords = await recordsService.getOwnStudentRecord(req.authUser.id);
+      const [ownRecords, summary] = await Promise.all([
+        recordsService.getOwnStudentRecord(req.authUser.id),
+        recordsService.getStudentDashboardSummary?.(req.authUser.id) || null
+      ]);
       if (ownRecords) {
         ownRecords.grades = await academicsService.getOwnGrades(req.authUser.id);
       }
       return res.render('dashboards/student', {
         title: dashboardViews.student.title,
         csrfToken: ensureCsrfToken(req),
-        ownRecords
+        ownRecords,
+        summary
       });
     } catch {
       return res.status(503).render('error', { title: 'Service Unavailable', message: 'Student records are temporarily unavailable.' });
@@ -349,11 +353,19 @@ function createRouter({ getPool = defaultGetPool, sql = defaultSql, environment 
 
   for (const [role, dashboard] of Object.entries(dashboardViews)) {
     if (role === 'database_admin' || role === 'finance' || role === 'student') continue;
-    router.get(dashboard.path, requireAuth, requireRole(role), (req, res) => {
-      res.render(dashboard.view, {
-        title: dashboard.title,
-        csrfToken: ensureCsrfToken(req)
-      });
+    router.get(dashboard.path, requireAuth, requireRole(role), async (req, res) => {
+      try {
+        const summary = await recordsService.getRegistrarDashboardSummary?.(req.authUser.id) || null;
+        return res.render(dashboard.view, {
+          title: dashboard.title,
+          csrfToken: ensureCsrfToken(req),
+          summary
+        });
+      } catch {
+        return res.status(503).render('error', {
+          title: 'Service Unavailable', message: 'The registrar dashboard is temporarily unavailable.'
+        });
+      }
     });
   }
 

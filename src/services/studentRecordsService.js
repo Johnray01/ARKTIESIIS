@@ -307,6 +307,62 @@ function createStudentRecordsService({
     return { student, enrollments: enrollments.recordset || [] };
   }
 
+  async function getStudentDashboardSummary(actorInput) {
+    const actorId = normalizeRecordId(actorInput, 'user');
+    if (!actorId) throw new StudentRecordsError('Student dashboard access is required.', 403);
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('actorId', sql.Int, actorId)
+      .query(`SELECT
+          (SELECT COUNT_BIG(*) FROM dbo.enrollments AS e
+            INNER JOIN dbo.students AS s ON s.id = e.student_id
+            WHERE s.user_id = @actorId) AS enrollment_count,
+          (SELECT COUNT_BIG(*) FROM dbo.grades AS g
+            INNER JOIN dbo.student_subjects AS ss ON ss.id = g.student_subject_id
+            INNER JOIN dbo.enrollments AS e ON e.id = ss.enrollment_id
+            INNER JOIN dbo.students AS s ON s.id = e.student_id
+            WHERE s.user_id = @actorId) AS grade_entry_count,
+          (SELECT COUNT_BIG(*) FROM dbo.documents AS d
+            INNER JOIN dbo.students AS s ON s.id = d.student_id
+            WHERE s.user_id = @actorId
+              AND (d.document_type IN ('good_moral', 'report_card')
+                OR (d.document_type = 'psa_birth_certificate'
+                  AND d.upload_source IN ('registrar', 'database_admin')))) AS document_count,
+          (SELECT COUNT_BIG(*) FROM dbo.documents AS d
+            INNER JOIN dbo.students AS s ON s.id = d.student_id
+            WHERE s.user_id = @actorId
+              AND (d.document_type IN ('good_moral', 'report_card')
+                OR (d.document_type = 'psa_birth_certificate'
+                  AND d.upload_source IN ('registrar', 'database_admin')))
+              AND d.status IN ('pending', 'processing', 'needs_review', 'failed')) AS documents_in_progress_count
+        WHERE EXISTS (SELECT 1 FROM dbo.users
+          WHERE id = @actorId AND role = 'student' AND is_active = 1)`);
+    const summary = result.recordset?.[0];
+    if (!summary) throw new StudentRecordsError('Your student dashboard access is no longer active. Sign in again.', 403);
+    return summary;
+  }
+
+  async function getRegistrarDashboardSummary(actorInput) {
+    const actorId = normalizeRecordId(actorInput, 'user');
+    if (!actorId) throw new StudentRecordsError('Registrar dashboard access is required.', 403);
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('actorId', sql.Int, actorId)
+      .query(`SELECT
+          (SELECT COUNT_BIG(*) FROM dbo.students WHERE status = 'active') AS active_student_count,
+          (SELECT COUNT_BIG(*) FROM dbo.students WHERE status = 'archived') AS archived_student_count,
+          (SELECT COUNT_BIG(*) FROM dbo.enrollments AS e
+            INNER JOIN dbo.academic_terms AS t ON t.id = e.academic_term_id
+            WHERE t.is_current = 1 AND e.enrollment_status = 'enrolled') AS current_enrollment_count,
+          (SELECT COUNT_BIG(*) FROM dbo.documents WHERE status IN ('needs_review', 'failed')) AS documents_awaiting_review_count,
+          (SELECT COUNT_BIG(*) FROM dbo.documents WHERE status IN ('pending', 'processing')) AS documents_processing_count
+        WHERE EXISTS (SELECT 1 FROM dbo.users
+          WHERE id = @actorId AND role = 'registrar' AND is_active = 1)`);
+    const summary = result.recordset?.[0];
+    if (!summary) throw new StudentRecordsError('Your registrar dashboard access is no longer active. Sign in again.', 403);
+    return summary;
+  }
+
   async function saveStudent(actorId, studentId, input) {
     const id = studentId === null ? null : normalizeRecordId(studentId);
     if (studentId !== null && !id) throw new StudentRecordsError('Student record not found.', 404);
@@ -557,7 +613,8 @@ function createStudentRecordsService({
   }
 
   return {
-    listWorkspace, getStudent, getOwnStudentRecord, saveStudent, deactivateStudentLogin, archiveStudent,
+    listWorkspace, getStudent, getOwnStudentRecord, getStudentDashboardSummary, getRegistrarDashboardSummary,
+    saveStudent, deactivateStudentLogin, archiveStudent,
     createTerm, setCurrentTerm, createSection, saveEnrollment
   };
 }

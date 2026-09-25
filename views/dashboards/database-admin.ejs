@@ -9,6 +9,18 @@
 
   <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
 
+  <% if (summary) { %>
+    <section class="dashboard-summary" aria-label="System summary">
+      <dl class="dashboard-summary-grid">
+        <div><dt>Active accounts</dt><dd><%= summary.active_user_count %></dd></div>
+        <div><dt>Inactive accounts</dt><dd><%= summary.inactive_user_count %></dd></div>
+        <div><dt>Active student records</dt><dd><%= summary.active_student_count %></dd></div>
+        <div><dt>Archived student records</dt><dd><%= summary.archived_student_count %></dd></div>
+        <div><dt>Documents awaiting staff review</dt><dd><%= summary.documents_awaiting_review_count %></dd></div>
+      </dl>
+    </section>
+  <% } %>
+
   <section class="admin-section" aria-labelledby="users-title">
     <div class="admin-section__heading">
       <div>

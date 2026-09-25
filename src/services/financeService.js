@@ -205,6 +205,26 @@ function createFinanceService({
     return { student, account, transactions: transactionResult.recordset || [] };
   }
 
+  async function getDashboardSummary(actorInput) {
+    const actorId = normalizeId(actorInput);
+    if (!actorId) throw new FinanceServiceError('Finance or database administrator access is required.', 403);
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('actorId', sql.Int, actorId)
+      .query(`SELECT
+          (SELECT COUNT_BIG(*) FROM dbo.financial_accounts) AS account_count,
+          (SELECT COUNT_BIG(*) FROM dbo.financial_accounts WHERE balance > 0) AS accounts_due_count,
+          (SELECT COUNT_BIG(*) FROM dbo.financial_accounts WHERE balance = 0) AS accounts_settled_count,
+          (SELECT COUNT_BIG(*) FROM dbo.financial_accounts WHERE balance < 0) AS accounts_credit_count,
+          (SELECT COUNT_BIG(*) FROM dbo.financial_transactions WHERE transaction_type = 'charge') AS charge_count,
+          (SELECT COUNT_BIG(*) FROM dbo.financial_transactions WHERE transaction_type = 'payment') AS payment_count
+        WHERE EXISTS (SELECT 1 FROM dbo.users
+          WHERE id = @actorId AND is_active = 1 AND role IN ('finance', 'database_admin'))`);
+    const summary = result.recordset?.[0];
+    if (!summary) throw new FinanceServiceError('Your finance access is no longer active. Sign in again.', 403);
+    return summary;
+  }
+
   async function createAccount(actorInput, studentInput) {
     const studentId = normalizeId(studentInput);
     if (!studentId) throw new FinanceServiceError('Choose a valid student record.');
@@ -306,7 +326,7 @@ function createFinanceService({
     });
   }
 
-  return { searchStudents, getStudentAccount, createAccount, recordTransaction };
+  return { searchStudents, getStudentAccount, getDashboardSummary, createAccount, recordTransaction };
 }
 
 module.exports = {

@@ -326,7 +326,19 @@ test('development login regenerates the session and redirects to the database-ba
     is_active: true
   }]);
 
-  await withServer(createApp({ databasePool: database.getPool, environment: developmentEnvironment() }), async (baseUrl) => {
+  const studentRecordsService = {
+    async getRegistrarDashboardSummary() {
+      return {
+        active_student_count: 0,
+        archived_student_count: 0,
+        current_enrollment_count: 0,
+        documents_awaiting_review_count: 0,
+        documents_processing_count: 0
+      };
+    }
+  };
+
+  await withServer(createApp({ databasePool: database.getPool, environment: developmentEnvironment(), studentRecordsService }), async (baseUrl) => {
     const loginPage = await fetch(`${baseUrl}/login`);
     const anonymousCookie = getSessionCookie(loginPage);
     const csrfToken = csrfFromHtml(await loginPage.text());

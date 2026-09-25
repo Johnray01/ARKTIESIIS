@@ -376,10 +376,15 @@ test('finance cannot access the student master list and denied requests do not l
 test('student dashboard resolves the own profile from session identity and rejects staff workspace access', async () => {
   const ownUserIds = [];
   const ownGradeUserIds = [];
+  const summaryUserIds = [];
   const studentRecordsService = {
     async getOwnStudentRecord(userId) {
       ownUserIds.push(userId);
       return { student: { student_no: 'S-7', first_name: 'Rae', last_name: 'Student' }, enrollments: [] };
+    },
+    async getStudentDashboardSummary(userId) {
+      summaryUserIds.push(userId);
+      return { enrollment_count: 2, grade_entry_count: 1, document_count: 3, documents_in_progress_count: 1 };
     },
     async listWorkspace() { throw new Error('student should not read the staff list'); }
   };
@@ -390,8 +395,11 @@ test('student dashboard resolves the own profile from session identity and rejec
     const cookie = await signIn(baseUrl, 'student');
     const dashboard = await fetch(`${baseUrl}/dashboard/student?studentId=999`, { headers: { cookie } });
     assert.equal(dashboard.status, 200);
-    assert.match(await dashboard.text(), /S-7/);
+    const html = await dashboard.text();
+    assert.match(html, /S-7/);
+    assert.match(html, /Documents awaiting OCR or staff review[\s\S]*?<dd>1<\/dd>/);
     assert.deepEqual(ownUserIds, [7]);
+    assert.deepEqual(summaryUserIds, [7]);
     assert.deepEqual(ownGradeUserIds, [7]);
     const records = await fetch(`${baseUrl}/records`, { headers: { cookie } });
     assert.equal(records.status, 403);
