@@ -80,6 +80,8 @@
 - Student document history/status.
 - Re-upload flow.
 
+**Phase 8 thesis implementation gate: complete.**
+
 ## Phase 9 - Local OCR
 - Configure local Tesseract and Poppler executable paths and English OCR language.
 - Render PDF pages individually and process supported images/PDFs with native command-line tools.
@@ -87,16 +89,18 @@
 - Bound PDF page count, worker concurrency, output size, and processing time; recover stale jobs safely.
 - Keep role checks, file storage, and upload limit from Phase 8; do not classify documents or claim authenticity.
 
+**Phase 9 thesis implementation gate: complete.** The Linux native OCR smoke and synthetic/in-memory service integration passed; the integration did not exercise live SQL Server or the authenticated route end to end.
+
 ## Academic Records - E-Class Record Import
-- Registrar preview and confirmation of cached Term 1–3 and Final Grade values from the corrected SSHS E-Class Record for SY 2026–2027, matched by LRN to existing enrollment and subject context. This is a separate academic-records feature and does not complete or close the Phase 10 policy gate.
+- Registrar preview and confirmation of cached Term 1–3 and Final Grade values from the corrected SSHS E-Class Record for SY 2026–2027, matched by LRN to existing enrollment and subject context. This workbook-specific grade-import feature is separate from document validation and does not define school-wide grading or document-acceptance policy.
 
 ## Phase 10 - Validation Rules
 - Advisory OCR clues for linked student name and possible school-name lines; report-card grade-entry suggestions have been removed.
 - Registrar/admin source inspection with immutable verify/correction/reject decisions; only manual verification sets `valid`.
-- Physical Form 137 status history with no new file upload or OCR.
+- Physical Form 137 status history; authorized staff can scan the paper for temporary OCR suggestions without storing the scan or OCR text.
 - Institution-approved required fields, completeness, grading, and format/compliance checks remain pending school approval.
 
-**Phase 10 policy gate:** leader-selected advisory and review behavior does not constitute school approval. Keep policy-dependent acceptance checks and Phase 10 completion on hold until the institution supplies its requirements and decision wording.
+**Phase 10 thesis implementation gate: complete.** The required role protections, advisory behavior, staff checklist, decision persistence, status wording, and checks are implemented. The separate **school-adoption gate remains pending** institution signoff; thesis defaults do not constitute school approval, and policy-dependent deployment must wait for the institution's requirements and decision wording.
 
 ## Phase 11 - Dashboards and Reporting
 - Student dashboard.

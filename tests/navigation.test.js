@@ -37,17 +37,32 @@ function createAuthPool(role) {
   return getPool;
 }
 
-function services() {
+function services({ ownStudentRecords = null } = {}) {
   return {
     adminService: {
-      async listDashboard() { return { users: [], auditLogs: [], searchTerm: '' }; }
+      async listDashboard() {
+        return {
+          users: [],
+          searchTerm: ''
+        };
+      },
+      async listAuditLogs() { return []; },
+      async getDashboardSummary() {
+        return {
+          active_user_count: 4,
+          inactive_user_count: 1,
+          active_student_count: 3,
+          archived_student_count: 0,
+          documents_awaiting_review_count: 2
+        };
+      }
     },
     studentRecordsService: {
       async listWorkspace() { return { students: [], terms: [], sections: [], searchTerm: '', academicTermId: null }; },
       async getStudent(id) {
         return { student: { id, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim', status: 'active' }, terms: [], sections: [], enrollments: [] };
       },
-      async getOwnStudentRecord() { return null; }
+      async getOwnStudentRecord() { return ownStudentRecords; }
     },
     academicRecordsService: {
       async listSubjects() { return []; },
@@ -115,12 +130,13 @@ async function signIn(baseUrl, role) {
 function navigationLabels(html) {
   const nav = html.match(/<nav class="primary-nav"[\s\S]*?<\/nav>/);
   assert.ok(nav, 'expected authenticated primary navigation');
-  return [...nav[0].matchAll(/class="primary-nav__link"[^>]*>([^<]+)<\/a>/g)].map((match) => match[1]);
+  return [...nav[0].matchAll(/class="primary-nav__link"[^>]*>([\s\S]*?)<\/a>/g)]
+    .map((match) => match[1].replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, '').trim());
 }
 
 test('authenticated navigation only exposes destinations available to each role', async () => {
   const cases = [
-    { role: 'database_admin', path: '/admin', labels: ['Overview', 'Student records', 'Documents', 'Subject catalog', 'Finance'], forbidden: [] },
+    { role: 'database_admin', path: '/admin', labels: ['Overview', 'Audit activity', 'Student records', 'Documents', 'Subject catalog', 'Finance'], forbidden: [] },
     { role: 'registrar', path: '/dashboard/registrar', labels: ['Overview', 'Student records', 'Documents', 'Subject catalog'], forbidden: ['/finance', '/admin'] },
     { role: 'finance', path: '/finance', labels: ['Finance workspace'], forbidden: ['/records', '/documents', '/admin'] },
     { role: 'student', path: '/dashboard/student', labels: ['My record', 'My documents'], forbidden: ['/records', '/finance', '/admin'] }
@@ -134,14 +150,99 @@ test('authenticated navigation only exposes destinations available to each role'
       const html = await response.text();
       assert.equal(response.status, 200);
       assert.deepEqual(navigationLabels(html), scenario.labels);
-      assert.match(html, /<a class="brand" href="\/dashboard" aria-label="ARKTIESIIS workspace">/);
+      const navigation = html.match(/<nav class="primary-nav"[\s\S]*?<\/nav>/)[0];
+      const navigationLinks = [...navigation.matchAll(/<a class="primary-nav__link"[^>]*>[\s\S]*?<\/a>/g)];
+      assert.equal(navigationLinks.length, scenario.labels.length);
+      for (const [index, match] of navigationLinks.entries()) {
+        assert.match(match[0], /<svg class="primary-nav__icon" aria-hidden="true" focusable="false"/);
+        assert.match(match[0], new RegExp(`<span>${scenario.labels[index]}</span>`));
+      }
+      assert.match(html, /<a class="brand" href="\/dashboard" aria-label="ARKTIESIIS workspace, Ark Technological Institute Education System Incorporated, Lucena Branch">/);
       assert.match(html, /<a class="primary-nav__link"[^>]*aria-current="page"/);
       assert.match(html, /<form class="site-header__signout" method="post" action="\/logout">/);
       assert.equal((html.match(/action="\/logout"/g) || []).length, 1, 'sign-out appears only in the shared header');
       assert.ok(csrfFromHtml(html).length >= 32);
+      if (scenario.role === 'database_admin') {
+        assert.match(html, /User accounts/);
+        assert.doesNotMatch(html, /Recent audit activity/);
+        assert.match(html, /System summary/);
+      }
+      if (scenario.role === 'registrar') {
+        assert.match(html, /class="registrar-work-index"/);
+        assert.match(html, /href="\/records"/);
+        assert.match(html, /href="\/documents"/);
+        assert.match(html, /href="\/records\/subjects"/);
+      }
+      if (scenario.role === 'finance') {
+        assert.match(html, /class="finance-panel finance-overview-panel"/);
+        assert.match(html, /id="finance-search-heading"/);
+        assert.match(html, /Recently updated accounts/);
+      }
+      if (scenario.role === 'student') {
+        assert.match(html, /class="[^"]*student-unlinked-state/);
+      }
       for (const href of scenario.forbidden) assert.doesNotMatch(html, new RegExp(`href="${href.replace('/', '\\/')}`));
     });
   }
+});
+
+test('database administrator audit page has its own current navigation destination and empty state', async () => {
+  const app = createApp({ databasePool: createAuthPool('database_admin'), environment, ...services() });
+  await withServer(app, async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'database_admin');
+    const response = await fetch(`${baseUrl}/admin/audit`, { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /<h1>Audit activity<\/h1>/);
+    assert.match(html, /href="\/admin\/audit" aria-current="page"/);
+    assert.match(html, /No audit events have been recorded\./);
+    const navigation = html.match(/<nav class="primary-nav"[\s\S]*?<\/nav>/)[0];
+    assert.equal((navigation.match(/aria-current="page"/g) || []).length, 1);
+    assert.equal((navigation.match(/href="\/admin\/audit"/g) || []).length, 1);
+  });
+});
+
+test('linked student dashboard groups profile with enrollment and grades while retaining empty states', async () => {
+  const ownStudentRecords = {
+    student: { student_no: 'S-22', first_name: 'Alex', last_name: 'Kim', status: 'active' },
+    enrollments: []
+  };
+  const app = createApp({ databasePool: createAuthPool('student'), environment, ...services({ ownStudentRecords }) });
+  await withServer(app, async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'student');
+    const response = await fetch(`${baseUrl}/dashboard/student`, { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /class="student-record-layout"/);
+    assert.match(html, /class="[^"]*student-profile-panel/);
+    assert.match(html, /class="student-academic-workspace"/);
+    assert.match(html, /No enrollment records are linked to your account\./);
+    assert.match(html, /No grades are linked to your account yet\./);
+  });
+});
+
+test('student records use the workspace rail and show a clear no-current-term state', async () => {
+  const app = createApp({ databasePool: createAuthPool('registrar'), environment, ...services() });
+  await withServer(app, async (baseUrl) => {
+    const cookie = await signIn(baseUrl, 'registrar');
+    const response = await fetch(`${baseUrl}/records`, { headers: { cookie } });
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /<aside class="workspace-rail" aria-label="ARKTIESIIS workspace">/);
+    assert.match(html, /<div class="workspace-stage">/);
+    assert.match(html, /<h1>Student records<\/h1>/);
+    assert.match(html, /No academic term is marked current\./);
+    assert.match(html, /Student master list/);
+    assert.match(html, /Academic terms/);
+    assert.match(html, /Sections/);
+    assert.match(html, /name="search"/);
+    assert.match(html, /name="termId"/);
+    assert.ok(html.indexOf('records-context-strip') < html.indexOf('records-list-panel'));
+    assert.ok(html.indexOf('records-list-panel') < html.indexOf('records-management-grid'));
+  });
 });
 
 test('nested workspace pages mark the current destination and provide fixed parent links', async () => {

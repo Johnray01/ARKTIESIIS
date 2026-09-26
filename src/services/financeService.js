@@ -174,6 +174,30 @@ function createFinanceService({
     return { students: result.recordset || [], searchTerm };
   }
 
+  async function listRecentAccounts(actorInput) {
+    const actorId = normalizeId(actorInput);
+    if (!actorId) throw new FinanceServiceError('Finance or database administrator access is required.', 403);
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('actorId', sql.Int, actorId)
+      .query(`SELECT CONVERT(INT, CASE WHEN EXISTS (
+          SELECT 1 FROM dbo.users
+          WHERE id = @actorId AND is_active = 1 AND role IN ('finance', 'database_admin')
+        ) THEN 1 ELSE 0 END) AS authorized;
+        SELECT TOP (8) s.id AS student_id, s.student_no, s.first_name, s.middle_name,
+          s.last_name, s.suffix, s.status, a.id AS financial_account_id,
+          CONVERT(NVARCHAR(40), a.balance) AS balance, a.updated_at
+        FROM dbo.financial_accounts AS a
+        INNER JOIN dbo.students AS s ON s.id = a.student_id
+        WHERE EXISTS (SELECT 1 FROM dbo.users
+          WHERE id = @actorId AND is_active = 1 AND role IN ('finance', 'database_admin'))
+        ORDER BY a.updated_at DESC, a.id DESC`);
+    if (Number(result.recordsets?.[0]?.[0]?.authorized) !== 1) {
+      throw new FinanceServiceError('Your finance access is no longer active. Sign in again.', 403);
+    }
+    return result.recordsets?.[1] || [];
+  }
+
   async function getStudentAccount(studentInput) {
     const studentId = normalizeId(studentInput);
     if (!studentId) throw new FinanceServiceError('Student record not found.', 404);
@@ -326,7 +350,7 @@ function createFinanceService({
     });
   }
 
-  return { searchStudents, getStudentAccount, getDashboardSummary, createAccount, recordTransaction };
+  return { searchStudents, listRecentAccounts, getStudentAccount, getDashboardSummary, createAccount, recordTransaction };
 }
 
 module.exports = {

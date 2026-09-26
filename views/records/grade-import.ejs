@@ -32,7 +32,7 @@
       <% } %>
     </section>
   <% } else { %>
-    <section class="admin-section" aria-labelledby="preview-context-title">
+    <section class="admin-section grade-import-preview" aria-labelledby="preview-context-title">
       <div class="admin-section__heading"><div><h2 id="preview-context-title">Preview · <%= preview.schoolYear %> · Grade <%= preview.gradeLevel %> · <%= preview.sectionName %></h2><p>Subject: <%= preview.subjectName %>. This preview expires at <%= new Date(preview.expiresAt).toLocaleString() %>.</p></div></div>
       <% if (preview.contextMismatch) { %>
         <p class="form-alert" role="alert">Workbook context: Grade <%= preview.workbookGradeLevel %> · <%= preview.workbookSectionName %> · <%= preview.workbookSubjectName %>. The selected class context differs. These rows are excluded; correct the roster or workbook and upload it again.</p>
@@ -40,8 +40,8 @@
       <p><%= preview.counts.eligible %> matched rows, <%= preview.counts.unresolved %> excluded rows, and <%= preview.counts.conflicts %> grade conflicts.</p>
       <form class="form-stack" method="post" action="/records/grade-import/<%= preview.id %>/confirm" data-submitting-message="Saving the selected grades. Please wait.">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <div class="table-scroll" tabindex="0" aria-label="Grade import preview">
-          <table class="admin-table">
+        <div class="table-scroll grade-import-preview__table-scroll" tabindex="0" aria-label="Grade import preview">
+          <table class="admin-table grade-import-preview__table">
             <caption class="visually-hidden">Student matches and cached term and final grades from the workbook</caption>
             <thead><tr><th scope="col">Workbook row</th><th scope="col">Student match</th><th scope="col">Workbook name</th><th scope="col">Term 1</th><th scope="col">Term 2</th><th scope="col">Term 3</th><th scope="col">Final</th><th scope="col">Review and include</th></tr></thead>
             <tbody>
@@ -52,17 +52,18 @@
                   <td data-label="Workbook name"><%= row.workbookName || '—' %></td>
                   <% for (const grade of row.grades) { %>
                     <td data-label="<%= grade.gradingPeriod %>">
-                      <%= grade.gradeValue %>
-                      <% if (grade.existingGradeId && Number(grade.existingGradeValue) === Number(grade.gradeValue)) { %><small class="field-help">Already matches</small>
+                      <strong class="grade-import-preview__grade-value"><%= grade.gradeValue ?? '—' %></strong>
+                      <% if (grade.gradeValue == null) { %><small class="field-help grade-import-preview__grade-state grade-import-preview__grade-state--missing">Missing</small>
+                      <% } else if (grade.existingGradeId && Number(grade.existingGradeValue) === Number(grade.gradeValue)) { %><small class="field-help grade-import-preview__grade-state">Already matches</small>
                       <% } else if (grade.existingGradeId) { %>
-                        <small class="field-help">Existing: <%= grade.existingGradeValue ?? 'blank' %></small>
+                        <small class="field-help grade-import-preview__grade-state">Existing: <%= grade.existingGradeValue ?? 'blank' %></small>
                         <label class="visually-hidden" for="action-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>">Conflict action for <%= grade.gradingPeriod %></label>
                         <select id="action-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>" name="action_<%= row.sourceRow %>_<%= grade.gradingPeriod === 'Term 1' ? 'term1' : grade.gradingPeriod === 'Term 2' ? 'term2' : grade.gradingPeriod === 'Term 3' ? 'term3' : 'final' %>">
                           <option value="skip">Keep existing</option><option value="replace">Replace existing</option>
                         </select>
                         <label class="visually-hidden" for="reason-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>">Reason for replacing <%= grade.gradingPeriod %></label>
                         <input id="reason-<%= row.sourceRow %>-<%= grade.gradingPeriod.replaceAll(' ', '-') %>" name="reason_<%= row.sourceRow %>_<%= grade.gradingPeriod === 'Term 1' ? 'term1' : grade.gradingPeriod === 'Term 2' ? 'term2' : grade.gradingPeriod === 'Term 3' ? 'term3' : 'final' %>" type="text" maxlength="500" placeholder="Reason if replacing">
-                      <% } else { %><small class="field-help">New grade</small><% } %>
+                      <% } else { %><small class="field-help grade-import-preview__grade-state">New grade</small><% } %>
                     </td>
                   <% } %>
                   <td data-label="Review and include">

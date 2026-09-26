@@ -1,9 +1,10 @@
 <%- include('../partials/head', { title }) %>
 <main class="page-shell dashboard-page admin-page records-page" id="main-content">
-  <section class="dashboard-heading">
+  <% const currentTerm = terms.find((term) => term.is_current); %>
+  <section class="dashboard-heading records-heading">
     <div>
       <h1>Student records</h1>
-      <p><%= currentUser.role === 'database_admin' ? 'Database administrator' : 'Registrar' %> workspace</p>
+      <p><%= currentUser.role === 'database_admin' ? 'Database administrator' : 'Registrar' %> workspace <span aria-hidden="true">·</span> Lucena Branch</p>
     </div>
     <div class="admin-heading-actions">
       <a class="button button--primary" href="/records/students/new">Add student</a>
@@ -14,12 +15,19 @@
   <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
   <% if (error) { %><p class="form-alert" role="alert"><%= error %></p><% } %>
 
-  <section class="admin-section" aria-labelledby="students-title">
+  <section class="records-context-strip" aria-label="Academic term context">
+    <div class="records-context-label"><span aria-hidden="true"></span>Academic records</div>
+    <p><strong>Current term</strong><span><% if (currentTerm) { %><%= currentTerm.school_year %> · <%= currentTerm.term %><% } else { %>No academic term is marked current.<% } %></span></p>
+    <p class="records-context-count"><strong><%= students.length %> matching</strong><span>student<%= students.length === 1 ? '' : 's' %></span></p>
+  </section>
+
+  <section class="admin-section records-list-panel" aria-labelledby="students-title">
     <div class="admin-section__heading">
       <div>
         <h2 id="students-title">Student master list</h2>
         <p>Search by name or student number. Results are limited to 250 records.</p>
       </div>
+      <span class="records-limit-note"><%= students.length === 250 ? 'Showing the first 250 records' : 'Latest enrollment details' %></span>
     </div>
     <form class="admin-search records-search" method="get" action="/records">
       <div class="field">
@@ -38,10 +46,9 @@
       <button class="button button--secondary" type="submit">Filter records</button>
       <% if (searchTerm || academicTermId) { %><a class="table-action" href="/records">Clear filters</a><% } %>
     </form>
-    <p class="admin-result-count"><%= students.length %> matching student<%= students.length === 1 ? '' : 's' %><% if (students.length === 250) { %> (showing the first 250)<% } %></p>
     <% if (students.length) { %>
       <div class="table-scroll" tabindex="0" aria-label="Scrollable student records table">
-        <table class="admin-table">
+        <table class="admin-table records-table">
           <caption class="visually-hidden">Student master list and latest selected enrollment</caption>
           <thead><tr><th scope="col">Student number</th><th scope="col">Student name</th><th scope="col">Status</th><th scope="col">Term</th><th scope="col">Section</th><th scope="col">Enrollment</th><th scope="col"><span class="visually-hidden">Record actions</span></th></tr></thead>
           <tbody>

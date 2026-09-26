@@ -1,13 +1,13 @@
 <%- include('../partials/head', { title }) %>
-<main class="page-shell dashboard-page" id="main-content">
+<main class="page-shell dashboard-page registrar-dashboard-page" id="main-content">
   <section class="dashboard-heading">
     <div>
       <h1>Registrar dashboard</h1>
-      <p>ARKTIESIIS workspace</p>
+      <p>Registrar workspace · Lucena Branch</p>
     </div>
   </section>
   <% if (summary) { %>
-    <section class="dashboard-summary" aria-label="Registrar summary">
+    <section class="dashboard-summary registrar-dashboard-summary" aria-label="Registrar summary">
       <dl class="dashboard-summary-grid">
         <div><dt>Active student records</dt><dd><%= summary.active_student_count %></dd></div>
         <div><dt>Archived student records</dt><dd><%= summary.archived_student_count %></dd></div>
@@ -17,17 +17,26 @@
       </dl>
     </section>
   <% } %>
-  <section class="admin-section" aria-labelledby="academic-workspace-title">
+  <section class="registrar-workspace" aria-labelledby="academic-workspace-title">
     <div class="admin-section__heading">
       <div>
-        <h2 id="academic-workspace-title">Academic records workspace</h2>
+        <h2 id="academic-workspace-title">Registrar workspaces</h2>
         <p>Manage student profiles, enrollment history, the subject catalog, and grades. Grade entries are associated with an enrolled subject and a grading period.</p>
       </div>
     </div>
-    <nav class="admin-heading-actions" aria-label="Registrar workspaces">
-      <a class="button button--secondary" href="/records">Student records</a>
-      <a class="button button--secondary" href="/documents">Document review</a>
-      <a class="button button--secondary" href="/records/subjects">Subject catalog</a>
+    <nav class="registrar-work-index" aria-label="Registrar workspaces">
+      <a class="registrar-work-index__link" href="/records">
+        <span><strong>Student records</strong><span>Profiles, academic terms, sections, and enrollment history.</span></span>
+        <span class="registrar-work-index__action">Open workspace</span>
+      </a>
+      <a class="registrar-work-index__link" href="/documents">
+        <span><strong>Document review</strong><span>Search student submissions and review their current status and history.</span></span>
+        <span class="registrar-work-index__action">Open workspace</span>
+      </a>
+      <a class="registrar-work-index__link" href="/records/subjects">
+        <span><strong>Subject catalog</strong><span>Manage subjects associated with academic records and grade entries.</span></span>
+        <span class="registrar-work-index__action">Open workspace</span>
+      </a>
     </nav>
   </section>
 </main>

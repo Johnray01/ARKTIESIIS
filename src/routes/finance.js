@@ -44,6 +44,9 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
         service.searchStudents(searchTerm),
         service.getDashboardSummary?.(req.authUser.id) || null
       ]);
+      const recentAccounts = !result.searchTerm && service.listRecentAccounts
+        ? await service.listRecentAccounts(req.authUser.id)
+        : [];
       return res.status(status).render('finance/workspace', {
         title: 'Finance Workspace',
         currentUser: req.authUser,
@@ -52,6 +55,7 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
         searchTerm: result.searchTerm,
         searchSuffix: result.searchTerm ? `?search=${encodeURIComponent(result.searchTerm)}` : '',
         students: result.students,
+        recentAccounts,
         searchError,
         student: null,
         account: null,
@@ -65,7 +69,7 @@ function createFinanceRouter({ getPool, sql, financeService } = {}) {
         return res.status(error.status).render('finance/workspace', {
           title: 'Finance Workspace', currentUser: req.authUser, csrfToken: ensureCsrfToken(req), summary: null, searchTerm: '', students: [],
           searchSuffix: '',
-          searchError: error.message, student: null, account: null, transactions: [], error: null,
+          searchError: error.message, recentAccounts: [], student: null, account: null, transactions: [], error: null,
           notice: null, transactionValues: formValues()
         });
       }

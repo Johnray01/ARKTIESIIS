@@ -77,8 +77,8 @@
   <section class="admin-section" aria-labelledby="history-title">
     <div class="admin-section__heading"><div><h2 id="history-title">Submission history</h2><p>Files and review requests remain attached to each submission.</p></div></div>
     <% if (documents.length) { %>
-      <div class="table-scroll" tabindex="0" aria-label="Student document history">
-        <table class="admin-table"><caption class="visually-hidden">Student document submission history</caption>
+      <div class="table-scroll document-history-scroll" tabindex="0" aria-label="Student document history">
+        <table class="admin-table document-history-table"><caption class="visually-hidden">Student document submission history</caption>
           <thead><tr><th scope="col">Document</th><th scope="col">File</th><th scope="col">Status</th><th scope="col">Submitted</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
           <tbody><% for (const document of documents) { %><tr>
             <td data-label="Document"><%= documentTypeLabel(document.document_type) %><% if (document.supersedes_document_id) { %><br><span class="muted-copy">Corrected submission</span><% } %></td>

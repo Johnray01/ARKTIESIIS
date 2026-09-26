@@ -52,7 +52,6 @@ function createAdminRouter({ getPool, sql, adminService } = {}) {
         currentUser: req.authUser,
         summary,
         users: dashboard.users,
-        auditLogs: dashboard.auditLogs,
         searchTerm: dashboard.searchTerm,
         searchError: null,
         notice: notices[req.query.notice] || null
@@ -65,13 +64,29 @@ function createAdminRouter({ getPool, sql, adminService } = {}) {
           currentUser: req.authUser,
           summary: null,
           users: [],
-          auditLogs: [],
           searchTerm: '',
           searchError: error.message,
           notice: null
         });
       }
       res.status(503).render('error', { title: 'Service Unavailable', message: 'Database administration is temporarily unavailable.' });
+    }
+  });
+
+  router.get('/audit', async (req, res) => {
+    try {
+      const auditLogs = await service.listAuditLogs();
+      return res.render('admin/audit', {
+        title: 'Audit activity',
+        csrfToken: ensureCsrfToken(req),
+        currentUser: req.authUser,
+        auditLogs
+      });
+    } catch {
+      return res.status(503).render('error', {
+        title: 'Service Unavailable',
+        message: 'Audit activity is temporarily unavailable.'
+      });
     }
   });
 

@@ -229,13 +229,18 @@ function createAdminService({
         OR u.email LIKE @searchPattern ESCAPE N'~'
         OR s.student_no LIKE @searchPattern ESCAPE N'~'
       ORDER BY u.created_at DESC, u.id DESC`);
-    const auditLogs = await pool.request().query(`
+    return { users: users.recordset || [], searchTerm };
+  }
+
+  async function listAuditLogs() {
+    const pool = await getPool();
+    const result = await pool.request().query(`
       SELECT TOP (100) a.id, a.user_id, actor.email AS actor_email, a.action, a.entity_type,
         a.entity_id, a.created_at
       FROM dbo.audit_logs AS a
       LEFT JOIN dbo.users AS actor ON actor.id = a.user_id
       ORDER BY a.created_at DESC, a.id DESC`);
-    return { users: users.recordset || [], auditLogs: auditLogs.recordset || [], searchTerm };
+    return result.recordset || [];
   }
 
   async function getDashboardSummary(actorInput) {
@@ -363,7 +368,7 @@ function createAdminService({
     });
   }
 
-  return { listDashboard, getDashboardSummary, getUser, createUser, updateUser, resetPassword };
+  return { listDashboard, listAuditLogs, getDashboardSummary, getUser, createUser, updateUser, resetPassword };
 }
 
 module.exports = {

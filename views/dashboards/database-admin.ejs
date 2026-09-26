@@ -1,16 +1,17 @@
 <%- include('../partials/head', { title }) %>
-<main class="page-shell dashboard-page admin-page" id="main-content">
+<main class="page-shell dashboard-page admin-page admin-dashboard-page" id="main-content">
   <section class="dashboard-heading">
     <div>
       <h1>Database administration</h1>
-      <p>Signed in as <%= currentUser.email %></p>
+      <p>Database administrator workspace · Lucena Branch</p>
     </div>
+    <div class="admin-heading-actions"><a class="button button--primary" href="/admin/users/new">Add user</a></div>
   </section>
 
   <% if (notice) { %><p class="form-success" role="status"><%= notice %></p><% } %>
 
   <% if (summary) { %>
-    <section class="dashboard-summary" aria-label="System summary">
+    <section class="dashboard-summary admin-dashboard-summary" aria-label="System summary">
       <dl class="dashboard-summary-grid">
         <div><dt>Active accounts</dt><dd><%= summary.active_user_count %></dd></div>
         <div><dt>Inactive accounts</dt><dd><%= summary.inactive_user_count %></dd></div>
@@ -21,13 +22,12 @@
     </section>
   <% } %>
 
-  <section class="admin-section" aria-labelledby="users-title">
+  <section class="admin-section admin-dashboard-users" aria-labelledby="users-title">
     <div class="admin-section__heading">
       <div>
         <h2 id="users-title">User accounts</h2>
         <p>Search by email or student number. Results are limited to 250 accounts.</p>
       </div>
-      <a class="button button--secondary" href="/admin/users/new">Add user</a>
     </div>
     <% if (searchError) { %><p class="form-alert" role="alert"><%= searchError %></p><% } %>
     <form class="admin-search" method="get" action="/admin">
@@ -60,35 +60,6 @@
       </div>
     <% } else { %>
       <p class="empty-state">No user accounts are available.</p>
-    <% } %>
-  </section>
-
-  <section class="admin-section" aria-labelledby="audit-title">
-    <div class="admin-section__heading">
-      <div>
-        <h2 id="audit-title">Recent audit activity</h2>
-        <p>Latest 100 recorded actions. Sensitive event details are not shown here.</p>
-      </div>
-    </div>
-    <% if (auditLogs.length) { %>
-      <div class="table-scroll" tabindex="0" aria-label="Scrollable audit activity table">
-        <table class="admin-table">
-          <caption class="visually-hidden">Recent system audit activity</caption>
-          <thead><tr><th scope="col">When</th><th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Record</th></tr></thead>
-          <tbody>
-            <% for (const event of auditLogs) { %>
-              <tr>
-                <td data-label="When"><%= event.created_at ? new Date(event.created_at).toLocaleString() : '—' %></td>
-                <td data-label="Actor"><%= event.actor_email || `User ${event.user_id || 'system'}` %></td>
-                <td data-label="Action"><%= (event.action || 'Unknown').replaceAll('.', ' · ').replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></td>
-                <td data-label="Record"><%= event.entity_type || '—' %><%= event.entity_id ? ` #${event.entity_id}` : '' %></td>
-              </tr>
-            <% } %>
-          </tbody>
-        </table>
-      </div>
-    <% } else { %>
-      <p class="empty-state">No audit events have been recorded.</p>
     <% } %>
   </section>
 </main>

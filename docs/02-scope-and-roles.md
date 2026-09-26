@@ -24,7 +24,7 @@
 - Deactivate linked student login accounts without archiving the student master record.
 - Authorized document management and review.
 - May upload Good Moral Certificates, report cards, and PSA birth certificates for student records.
-- Records Form 137 physical receipt/review status and instructions. No new Form 137 file or OCR is used in this workflow; historical Form 137 files stay staff-only.
+- Records Form 137 physical receipt/review status and instructions. Authorized staff may send a scan to the server for temporary local OCR suggestions; the temporary scan is removed after processing and neither the scan nor OCR text is retained as a document or database record. Historical Form 137 files stay staff-only.
 
 ## Finance
 - Search for a student by name or student number and access only finance identifiers, account details, balances, and transaction history.
@@ -39,7 +39,7 @@
 - Upload permitted documents: Good Moral Certificate and report card.
 - View document status and correction instructions, and re-upload their own Good Moral Certificates and report cards when requested.
 - View/download a PSA birth certificate uploaded by a registrar or database administrator for their own record; students cannot upload or re-upload PSA files.
-- View their own Form 137 physical status and staff instruction; students cannot upload Form 137.
+- View their own Form 137 physical status and staff instruction; students cannot scan, upload, or view Form 137 files or OCR suggestions.
 - No access to another student's records.
 - Archived student records retain academic and finance history; the linked student login is inactive.
 
@@ -53,6 +53,6 @@ Initial approved types:
 - Good Moral Certificate
 - PSA Birth Certificate
 
-Students may upload only Good Moral Certificates and report cards. Registrar/database administrator users may upload Good Moral Certificates, report cards, and PSA birth certificates. Students may view/download only a staff-uploaded PSA file belonging to their own record. Form 137 is a physical status workflow for registrar/database administrator users; it records pending, received, verified, correction, or rejected status and contains no new upload or OCR step. Historical Form 137 files are restricted to staff.
+Students may upload only Good Moral Certificates and report cards. Registrar/database administrator users may upload Good Moral Certificates, report cards, and PSA birth certificates. Students may view/download only a staff-uploaded PSA file belonging to their own record. Form 137 is a physical status workflow for registrar/database administrator users; it records pending, received, verified, correction, or rejected status. Staff may send the physical paper scan to the server through a CSRF-protected endpoint for local OCR suggestions. The temporary file is deleted after processing; no persistent Form 137 file or OCR record is created. Only staff-recorded status and instruction are saved. Historical Form 137 files are restricted to staff.
 
 The uploader chooses the document type before upload. Digital OCR suggestions are advisory: they look for the linked student name and a possible school-name line on report cards and Good Moral Certificates, and the linked student name on PSA certificates. They do not use a school-name whitelist, grading thresholds, completeness rules, or automatic acceptance. A registrar/database administrator inspects each digital source and records verification, a correction request, or rejection. A reason is required to verify after an OCR failure or a missed advisory check. OCR does not classify documents or claim to prove authenticity, detect forgery, verify signatures or seals, or perform forensic analysis. These are capstone leader implementation decisions, not school policy; school approval is still required for policy-dependent Phase 10 acceptance checks.

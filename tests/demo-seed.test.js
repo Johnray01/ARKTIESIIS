@@ -100,13 +100,17 @@ test('demo finance balances equal the signed charge and payment ledger totals', 
   }
 });
 
-test('demo credential file is created once with owner-only permissions and preserved on rerun', () => {
+test('demo credential file is created once with owner-only POSIX permissions where supported and preserved on rerun', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'arktiesiis-demo-'));
   const filePath = path.join(directory, '.env.demo');
   try {
     const first = loadOrCreateCredentials({ smtpUser: 'prototype.user@gmail.com', filePath, randomPassword: () => 's'.repeat(40) });
-    const mode = fs.statSync(filePath).mode & 0o777;
-    assert.equal(mode, 0o600);
+    // Node exposes POSIX owner/group/other bits on Unix; Windows uses ACLs and
+    // chmod only controls the write bit, so stat().mode cannot assert privacy there.
+    if (process.platform !== 'win32') {
+      const mode = fs.statSync(filePath).mode & 0o777;
+      assert.equal(mode, 0o600);
+    }
     assert.equal(first.passwords.registrar, 's'.repeat(40));
     const previous = fs.readFileSync(filePath, 'utf8');
     const second = loadOrCreateCredentials({ smtpUser: 'prototype.user@gmail.com', filePath, randomPassword: () => { throw new Error('must preserve existing passwords'); } });

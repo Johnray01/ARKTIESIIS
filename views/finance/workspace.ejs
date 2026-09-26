@@ -1,10 +1,10 @@
 <%- include('../partials/head', { title }) %>
-<main class="page-shell dashboard-page finance-page" id="main-content">
+<main class="page-shell dashboard-page finance-page <%= student ? 'finance-detail-page' : 'finance-workspace-page' %>" id="main-content">
   <% if (student) { %><a class="context-back" href="/finance<%= searchSuffix %>">Back to finance workspace</a><% } %>
   <section class="dashboard-heading">
     <div>
       <h1><%= student ? 'Financial account' : 'Finance workspace' %></h1>
-      <p><%= student ? 'Review this student account and its recorded transactions.' : 'Search for a student by student number or name to view and manage financial account activity.' %></p>
+      <p><%= student ? 'Review this student account and its recorded transactions.' : 'Review account activity, find a student, and record finance transactions.' %></p>
     </div>
   </section>
 
@@ -16,47 +16,65 @@
 
   <% if (!student) { %>
     <% if (summary) { %>
-      <section class="dashboard-summary" aria-label="Finance summary">
+      <section class="dashboard-summary finance-dashboard-summary" aria-label="Finance summary">
+        <div class="finance-summary-heading">
+          <div><span class="finance-summary-eyebrow">Account overview</span><h2>Finance at a glance</h2></div>
+          <p>Current account totals from saved finance records.</p>
+        </div>
         <dl class="dashboard-summary-grid">
           <div><dt>Financial accounts</dt><dd><%= summary.account_count %></dd></div>
           <div><dt>Accounts with a balance due</dt><dd><%= summary.accounts_due_count %></dd></div>
           <div><dt>Settled accounts</dt><dd><%= summary.accounts_settled_count %></dd></div>
           <div><dt>Accounts with a credit balance</dt><dd><%= summary.accounts_credit_count %></dd></div>
-          <div><dt>Recorded charges</dt><dd><%= summary.charge_count %></dd></div>
-          <div><dt>Recorded payments</dt><dd><%= summary.payment_count %></dd></div>
         </dl>
+        <div class="finance-summary-activity" aria-label="Ledger activity counts">
+          <span>Ledger activity</span>
+          <span><strong><%= summary.charge_count %></strong> recorded charges</span>
+          <span><strong><%= summary.payment_count %></strong> recorded payments</span>
+        </div>
       </section>
     <% } %>
-    <section class="finance-panel" aria-labelledby="finance-search-heading">
-      <h2 id="finance-search-heading">Find a student</h2>
-      <form class="finance-search" method="get" action="/finance">
-        <label class="field">
-          <span>Student number or name</span>
-          <input type="search" name="search" maxlength="100" value="<%= searchTerm %>" autocomplete="off" required>
-        </label>
-        <button class="button button--primary" type="submit">Search</button>
-      </form>
+    <% const accountRows = searchTerm ? students : recentAccounts; %>
+    <section class="finance-panel finance-overview-panel" aria-labelledby="finance-search-heading">
+      <div class="finance-overview-heading">
+        <div>
+          <span class="finance-eyebrow">Account index</span>
+          <h2 id="finance-search-heading"><%= searchTerm ? 'Search results' : 'Recently updated accounts' %></h2>
+          <p><%= searchTerm ? 'Matches across active and archived student records.' : 'The latest account activity. Search to find any student record.' %></p>
+        </div>
+        <form class="finance-search" method="get" action="/finance">
+          <label class="field">
+            <span>Student number or name</span>
+            <input type="search" name="search" maxlength="100" value="<%= searchTerm %>" autocomplete="off" placeholder="e.g. DEMO-001" required>
+          </label>
+          <button class="button button--primary" type="submit">Search</button>
+        </form>
+      </div>
       <% if (searchError) { %><p class="form-alert" role="alert"><%= searchError %></p><% } %>
       <% if (searchTerm && !searchError && students.length === 0) { %><p class="empty-state">No matching students were found. Check the name or student number and search again.</p><% } %>
-      <% if (students.length) { %>
-        <div class="table-scroll" tabindex="0" aria-label="Finance search results">
-          <table class="admin-table finance-table">
-            <caption class="visually-hidden">Student search results and account summary</caption>
-            <thead><tr><th scope="col">Student number</th><th scope="col">Name</th><th scope="col">Account</th><th scope="col">Balance</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
+      <% if (accountRows.length) { %>
+        <div class="table-scroll finance-account-list" tabindex="0" aria-label="<%= searchTerm ? 'Finance search results' : 'Recent financial accounts' %>">
+          <table class="admin-table finance-overview-table">
+            <caption class="visually-hidden"><%= searchTerm ? 'Student search results and account summary' : 'Recently updated student financial accounts' %></caption>
+            <thead><tr><th scope="col">Student number</th><th scope="col">Student</th><th scope="col">Account status</th><th scope="col">Balance</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
             <tbody>
-              <% students.forEach((result) => { %>
+              <% accountRows.forEach((result) => { %>
+                <% const balanceAmount = result.balance === null || result.balance === undefined ? null : Number(result.balance); %>
+                <% const accountStatus = !result.financial_account_id ? 'Not created' : balanceAmount > 0 ? 'Due' : balanceAmount < 0 ? 'Credit' : 'Settled'; %>
                 <tr>
                   <td data-label="Student number"><%= result.student_no %></td>
-                  <td data-label="Name"><%= [result.first_name, result.middle_name, result.last_name, result.suffix].filter(Boolean).join(' ') %></td>
-                  <td data-label="Account"><%= result.financial_account_id ? 'Open' : 'Not created' %></td>
-                  <td data-label="Balance"><%= result.balance ? `PHP ${result.balance}` : '—' %></td>
-                  <td data-label="Action"><a class="table-action" href="/finance/students/<%= result.student_id %><%= searchSuffix %>">View finance account</a></td>
+                  <td data-label="Student"><%= [result.first_name, result.middle_name, result.last_name, result.suffix].filter(Boolean).join(' ') %></td>
+                  <td data-label="Account status"><span class="finance-status finance-status--<%= accountStatus.toLowerCase().replaceAll(' ', '-') %>"><%= accountStatus %></span></td>
+                  <td data-label="Balance"><%= balanceAmount === null ? '—' : `PHP ${result.balance}` %></td>
+                  <td data-label="Action"><a class="table-action" href="/finance/students/<%= result.student_id %><%= searchSuffix %>"><%= result.financial_account_id ? 'View account' : 'Create account' %></a></td>
                 </tr>
               <% }) %>
             </tbody>
           </table>
         </div>
-        <p class="finance-caption">Showing at most 100 matches. Add more of the student's name or number to narrow the search.</p>
+        <p class="finance-caption"><%= searchTerm ? `Showing at most ${students.length === 100 ? '100' : students.length} matches.` : `Showing ${recentAccounts.length} of the most recently updated accounts.` %> Search covers all student records.</p>
+      <% } else if (!searchTerm && !searchError) { %>
+        <p class="empty-state">No financial accounts are available yet. Search for a student to create an account.</p>
       <% } %>
     </section>
   <% } %>
@@ -65,7 +83,6 @@
     <section class="finance-panel finance-account" aria-labelledby="finance-account-heading">
       <div class="finance-account__heading">
         <div>
-          <p class="finance-eyebrow">Student finance record</p>
           <h2 id="finance-account-heading"><%= [student.first_name, student.middle_name, student.last_name, student.suffix].filter(Boolean).join(' ') %></h2>
           <p>Student number: <strong><%= student.student_no %></strong></p>
         </div>
@@ -92,7 +109,7 @@
           <% } %>
         </div>
       <% } else { %>
-        <div class="finance-grid">
+        <div class="finance-grid finance-detail-grid">
           <section aria-labelledby="finance-entry-heading">
             <h3 id="finance-entry-heading"><%= student.status === 'archived' ? 'Transactions are read-only' : 'Record a transaction' %></h3>
             <% if (student.status === 'archived') { %>

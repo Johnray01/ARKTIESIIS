@@ -52,6 +52,8 @@ function deriveDemoEmails(smtpUser) {
   const localPart = match[1];
   const domain = match[2];
   const aliases = {
+    databaseAdmin: 'arkt-demo-admin',
+    documentStudent: 'arkt-demo-document-student',
     registrar: 'arkt-demo-registrar',
     finance: 'arkt-demo-finance',
     student1: 'arkt-demo-student-1',

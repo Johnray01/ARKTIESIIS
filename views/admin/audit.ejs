@@ -1,0 +1,36 @@
+<%- include('../partials/head', { title }) %>
+<main class="page-shell dashboard-page admin-page admin-audit-page" id="main-content">
+  <a class="context-back" href="/admin">Back to overview</a>
+  <section class="dashboard-heading">
+    <div>
+      <h1>Audit activity</h1>
+      <p>Latest 100 recorded actions. Sensitive event details are not shown here.</p>
+    </div>
+  </section>
+
+  <section class="admin-section" aria-labelledby="audit-title">
+    <div class="admin-section__heading">
+      <div>
+        <h2 id="audit-title">Recent system activity</h2>
+        <p>Review administrator and staff actions recorded by the system.</p>
+      </div>
+    </div>
+    <% if (auditLogs.length) { %>
+      <ol class="admin-audit-list" aria-label="Recent system audit activity">
+        <% for (const event of auditLogs) { %>
+          <li class="admin-audit-event">
+            <dl class="admin-audit-event__fields">
+              <div><dt>When</dt><dd><%= event.created_at ? new Date(event.created_at).toLocaleString() : '—' %></dd></div>
+              <div><dt>Actor</dt><dd><%= event.actor_email || `User ${event.user_id || 'system'}` %></dd></div>
+              <div><dt>Action</dt><dd><%= (event.action || 'Unknown').replaceAll('.', ' · ').replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toUpperCase()) %></dd></div>
+              <div><dt>Record</dt><dd><%= event.entity_type || '—' %><%= event.entity_id ? ` #${event.entity_id}` : '' %></dd></div>
+            </dl>
+          </li>
+        <% } %>
+      </ol>
+    <% } else { %>
+      <p class="empty-state">No audit events have been recorded.</p>
+    <% } %>
+  </section>
+</main>
+<%- include('../partials/foot') %>

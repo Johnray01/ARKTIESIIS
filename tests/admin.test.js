@@ -140,6 +140,8 @@ test('user search binds an escaped email/student-number pattern and validates it
 
   const dashboard = await service.listDashboard('acct_%[x]~');
   const userQuery = calls[0];
+  assert.equal(calls.length, 1, 'the overview query does not load audit activity');
+  assert.doesNotMatch(userQuery.statement, /dbo\.audit_logs/);
   assert.equal(dashboard.searchTerm, 'acct_%[x]~');
   assert.equal(userQuery.values.searchPattern, '%acct~_~%~[x~]~~%');
   assert.match(userQuery.statement, /u\.email LIKE @searchPattern/);
@@ -304,6 +306,10 @@ test('database administrator read matrix permits staff workspaces and denies stu
       calls.push(['listDashboard', searchTerm]);
       return { users: [], auditLogs: [], searchTerm };
     },
+    async listAuditLogs() {
+      calls.push(['listAuditLogs']);
+      return [];
+    },
     async getDashboardSummary(actorId) {
       calls.push(['getDashboardSummary', actorId]);
       return {
@@ -331,6 +337,7 @@ test('database administrator read matrix permits staff workspaces and denies stu
     const cookie = await signIn(baseUrl, 'database_admin@example.edu');
     const cases = [
       ['/admin', 200, /Database Admin Dashboard/],
+      ['/admin/audit', 200, /Audit activity/],
       ['/records', 200, /Student Records/],
       ['/documents', 200, /Documents/],
       ['/finance', 200, /Finance Workspace/],
@@ -346,6 +353,7 @@ test('database administrator read matrix permits staff workspaces and denies stu
     assert.deepEqual(calls, [
       ['listDashboard', ''],
       ['getDashboardSummary', 7],
+      ['listAuditLogs'],
       ['listWorkspace', '', ''],
       ['listDocuments', 7],
       ['searchFinanceStudents', ''],
@@ -356,11 +364,16 @@ test('database administrator read matrix permits staff workspaces and denies stu
 
 test('non-admin role receives 403 for admin routes without loading admin data', async () => {
   let dashboardReads = 0;
-  const adminService = { async listDashboard() { dashboardReads += 1; return { users: [], auditLogs: [] }; } };
+  const adminService = {
+    async listDashboard() { dashboardReads += 1; return { users: [] }; },
+    async listAuditLogs() { dashboardReads += 1; return []; }
+  };
   await withServer(createApp({ databasePool: createAuthPool('registrar'), environment: testEnvironment, adminService }), async (baseUrl) => {
     const cookie = await signIn(baseUrl, 'registrar@example.edu');
-    const response = await fetch(`${baseUrl}/admin`, { headers: { cookie } });
-    assert.equal(response.status, 403);
+    for (const route of ['/admin', '/admin/audit']) {
+      const response = await fetch(`${baseUrl}${route}`, { headers: { cookie } });
+      assert.equal(response.status, 403);
+    }
     assert.equal(dashboardReads, 0);
   });
 });
@@ -474,15 +487,15 @@ test('create and reset forms reject mismatched passwords without returning submi
 test('audit viewer omits stored detail JSON', async () => {
   const adminService = {
     async listDashboard() {
-      return {
-        users: [],
-        auditLogs: [{ id: 1, actor_email: 'database_admin@example.edu', action: 'admin.user_created', entity_type: 'user', entity_id: '9', details_json: '{"password":"must-not-render"}' }]
-      };
+      throw new Error('The audit route must not load overview data.');
+    },
+    async listAuditLogs() {
+      return [{ id: 1, actor_email: 'database_admin@example.edu', action: 'admin.user_created', entity_type: 'user', entity_id: '9', details_json: '{"password":"must-not-render"}' }];
     }
   };
   await withServer(createApp({ databasePool: createAuthPool('database_admin'), environment: testEnvironment, adminService }), async (baseUrl) => {
     const cookie = await signIn(baseUrl, 'database_admin@example.edu');
-    const response = await fetch(`${baseUrl}/admin`, { headers: { cookie } });
+    const response = await fetch(`${baseUrl}/admin/audit`, { headers: { cookie } });
     const html = await response.text();
     assert.equal(response.status, 200);
     assert.match(html, /Admin · user created/);

@@ -1,13 +1,13 @@
 <%- include('../partials/head', { title }) %>
-<main class="page-shell dashboard-page records-page" id="main-content">
+<main class="page-shell dashboard-page records-page student-record-page" id="main-content">
   <section class="dashboard-heading">
     <div>
       <h1>My student record</h1>
-      <p>ARKTIESIIS workspace</p>
+      <p>Student workspace · Lucena Branch</p>
     </div>
   </section>
   <% if (summary) { %>
-    <section class="dashboard-summary" aria-label="Your student summary">
+    <section class="dashboard-summary student-dashboard-summary" aria-label="Your student summary">
       <dl class="dashboard-summary-grid">
         <div><dt>Enrollment records</dt><dd><%= summary.enrollment_count %></dd></div>
         <div><dt>Grade entries</dt><dd><%= summary.grade_entry_count %></dd></div>
@@ -19,7 +19,8 @@
     </section>
   <% } %>
   <% if (ownRecords) { %>
-    <section class="admin-section" aria-labelledby="profile-title">
+    <div class="student-record-layout">
+    <section class="admin-section student-profile-panel" aria-labelledby="profile-title">
       <div class="admin-section__heading"><div><h2 id="profile-title">Profile</h2><p>Your profile details and academic records linked to this account.</p></div></div>
       <dl class="student-profile-grid">
         <div><dt>Student number</dt><dd><%= ownRecords.student.student_no %></dd></div>
@@ -30,7 +31,8 @@
         <div><dt>Address</dt><dd><%= ownRecords.student.address || 'Not provided' %></dd></div>
       </dl>
     </section>
-    <section class="admin-section" aria-labelledby="enrollments-title">
+    <div class="student-academic-workspace">
+    <section class="student-record-section" aria-labelledby="enrollments-title">
       <div class="admin-section__heading"><div><h2 id="enrollments-title">Enrollment history</h2><p>Academic term and section information linked to your student record.</p></div></div>
       <% if (ownRecords.enrollments.length) { %>
         <div class="table-scroll" tabindex="0" aria-label="Your enrollment history">
@@ -45,7 +47,7 @@
         </div>
       <% } else { %><p class="empty-state">No enrollment records are linked to your account.</p><% } %>
     </section>
-    <section class="admin-section" aria-labelledby="grades-title">
+    <section class="student-record-section" aria-labelledby="grades-title">
       <div class="admin-section__heading"><div><h2 id="grades-title">My grades</h2><p>Grades recorded for subjects in your enrollment history.</p></div></div>
       <% if (ownRecords.grades && ownRecords.grades.length) { %>
         <div class="table-scroll" tabindex="0" aria-label="Your grades">
@@ -61,8 +63,10 @@
         </div>
       <% } else { %><p class="empty-state">No grades are linked to your account yet.</p><% } %>
     </section>
+    </div>
+    </div>
   <% } else { %>
-    <section class="placeholder-state" aria-labelledby="profile-unavailable-title">
+    <section class="placeholder-state student-unlinked-state" aria-labelledby="profile-unavailable-title">
       <h2 id="profile-unavailable-title">Student profile is not linked</h2>
       <p>Contact the registrar to link your login to your student record.</p>
     </section>

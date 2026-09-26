@@ -1,29 +1,30 @@
-<!-- Code-led direction contract for the existing page set. -->
+<!-- Code-led direction contract for the complete existing application surface set. -->
 
-# Identity and access pages
+# ARKTIESIIS application surfaces
 
 Mode: Operate
 
-## Direction record
+## Direction contract
 
-Impeccable direction roll seed: `5749fb14`. The user-fixed brief supplied the school seal, restrained red accents, neutral surfaces, and all existing target pages. On the parent's instruction to keep this fixed brief moving, this implementation uses a compact code-led direction; no comp approval is claimed.
+Impeccable direction roll seed: a7f65fdb.
+Build path: code-led. The code-led Academic Index lead direction is retained and made bolder at the user's request.
 
 ## THESIS
 
-The real school seal and Lucena Branch building anchor the interface in its institution. Calm, consistent form language helps users sign in and verify their email without adding invented product claims.
+ARKTIESIIS is a working school records and administration system. Its institutional frame should feel unmistakable while letting real student, registrar, finance, document, and administrative tasks stay easy to scan.
 
 ## OWN-WORLD
 
-The visual world is a clear school records desk: official institutional identity, cool neutral surfaces, dark ink, restrained crimson controls, and one authentic building image. It uses no faux ledger textures or generic campus illustrations.
+The visual world is an academic index: a persistent deep ink navigation rail on authenticated desktop pages, a warm paper workspace, compact table rhythm, and restrained crimson. The public home and authentication pages keep their public masthead, unchanged school seal, and authentic campus photograph in a distinctive dark context panel and image pairing.
 
 ## STORY
 
-The home page identifies the institution and presents one school-account sign-in action. Login explains the password and email-code steps; the verification page provides code entry and resend. Errors offer a home recovery path. Each role dashboard stays an honest placeholder with a sign-out action.
+Visitors understand the institution and find the existing sign-in action. Signed-in users see their role's existing destinations and current location in the persistent desktop rail or compact mobile header. Database administrators reach audit activity from its own navigation destination. Dashboards, records, finance, documents, and admin screens retain their present actions, wording, permissions, and limits. The current-location state in navigation and progressive detail in existing native disclosures are the signature interactions; no decorative entrance animation is added.
 
 ## FIRST VIEWPORT
 
-Every page opens with the school masthead. The home page pairs a large institutional heading and sign-in action with the edited building photograph. Login and verification put task context beside one focused form on desktop and stack both on mobile. Error and role-placeholder pages keep the message and recovery action prominent.
+At desktop width, the public home sets a large dark institutional statement panel beside the campus photograph; the primary school-account action sits within that panel. Auth pages pair a dark task-context panel with one light focused form. Authenticated workspaces open with a persistent vertical identity and navigation rail beside a spacious canvas. The database-admin dashboard prioritizes account search and the user list; audit activity has its own role-only page in navigation. The registrar dashboard turns its three existing destinations into a row index; the student dashboard gives profile, enrollment, and grade history full-width sections in that order; and finance moves from real summary to student search or account context with transaction entry and history. The student-records page leads with its title and actions, current-term context, searchable master list, then academic-term and section tools. At 900px and below the rail becomes a compact header; role and sign-out sit beside the brand when space permits and move to their own row at 400px and below. Role destinations use a single horizontally scrollable navigation row with the current destination marked. Dashboard columns stack at narrow phone widths without changing task order.
 
 ## FORM
 
-Use system sans-serif type, dark ink headings, cool gray-white surfaces, thin neutral rules, and compact rounded controls. Reserve crimson for primary actions, links, focus, and errors. The homepage image uses a 3:2 desktop crop and a 4:3 narrow-screen crop. At 760px and below, major layouts stack; at 400px and below, masthead type and mark scale down. Preserve existing route names, CSRF tokens, field names, EJS escaping, and server authorization. The system describes no role tools until they are implemented.
+The lead direction is Academic Index, built code-led; seed key a7f65fdb. Keep the official seal and real campus photograph unchanged. Use system sans-serif type, warm neutral page ground, dark ink desktop rail and mobile header, white task surfaces, and crimson for action, current location, focus, and error. Keep account search and the account list spacious, and give audit activity its own database-administrator destination. Keep tables compact and readable, reflow regular tables to labeled rows at mobile widths, and preserve the finance history's horizontal table scroll. Keep every role destination reachable in the single-row mobile navigation and leave the current one clearly marked. Support 320px, keyboard focus, reduced motion, and existing route, form, CSRF, escaping, authorization, and OCR advisory semantics.

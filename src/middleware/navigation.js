@@ -1,6 +1,7 @@
 const navigationByRole = {
   database_admin: [
     { id: 'overview', label: 'Overview', href: '/dashboard' },
+    { id: 'audit', label: 'Audit activity', href: '/admin/audit' },
     { id: 'student-records', label: 'Student records', href: '/records' },
     { id: 'documents', label: 'Documents', href: '/documents' },
     { id: 'subjects', label: 'Subject catalog', href: '/records/subjects' },
@@ -29,6 +30,8 @@ function buildNavigation(role, currentPath = '') {
       current = role === 'database_admin'
         ? path === '/admin' || path.startsWith('/admin/users/')
         : role === 'registrar' && path === '/dashboard/registrar';
+    } else if (item.id === 'audit') {
+      current = role === 'database_admin' && path === '/admin/audit';
     } else if (item.id === 'student-records') {
       current = path === '/records' || (path.startsWith('/records/') && !path.startsWith('/records/subjects'));
     } else if (item.id === 'subjects') {

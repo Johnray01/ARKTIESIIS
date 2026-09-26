@@ -3,34 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#f3f5f7">
+  <meta name="theme-color" content="#1b272d">
   <title><%= title %> | ARKTIESIIS</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
-<body>
+<body class="<%= typeof currentUser !== 'undefined' && currentUser && typeof navigationItems !== 'undefined' ? 'workspace-body' : 'public-body' %>">
 <a class="skip-link" href="#main-content">Skip to main content</a>
-<header class="site-header">
-  <div class="site-header__inner">
-    <a class="brand" href="<%= typeof currentUser !== 'undefined' && currentUser ? '/dashboard' : '/' %>" aria-label="ARKTIESIIS <%= typeof currentUser !== 'undefined' && currentUser ? 'workspace' : 'home' %>">
-      <img class="brand__seal" src="/images/arktiesiis-school-seal.png" alt="Official seal of Ark Technological Institute Education System Incorporated">
-      <span class="brand__copy">
-        <span class="brand__name">ARKTIESIIS</span>
-        <span class="brand__institution">Ark Technological Institute Education System Incorporated</span>
-        <span class="brand__branch">Lucena Branch</span>
-      </span>
-    </a>
-  </div>
-  <% if (typeof currentUser !== 'undefined' && currentUser && typeof navigationItems !== 'undefined') { %>
-    <div class="site-header__workspace">
+<% if (typeof currentUser !== 'undefined' && currentUser && typeof navigationItems !== 'undefined') { %>
+  <div class="workspace-shell">
+    <aside class="workspace-rail" aria-label="ARKTIESIIS workspace">
+      <a class="brand" href="/dashboard" aria-label="ARKTIESIIS workspace, Ark Technological Institute Education System Incorporated, Lucena Branch">
+        <img class="brand__seal" src="/images/arktiesiis-school-seal.png" alt="Official seal of Ark Technological Institute Education System Incorporated">
+        <span class="brand__copy">
+          <span class="brand__name">ARKTIESIIS</span>
+          <span class="brand__institution">Ark Technological Institute Education System Incorporated</span>
+          <span class="brand__branch">Lucena Branch</span>
+        </span>
+      </a>
       <nav class="primary-nav" aria-label="Main navigation">
         <% for (const item of navigationItems) { %>
-          <a class="primary-nav__link" href="<%= item.href %>"<% if (item.current) { %> aria-current="page"<% } %>><%= item.label %></a>
+          <a class="primary-nav__link" href="<%= item.href %>"<% if (item.current) { %> aria-current="page"<% } %>><%- include('nav-icon', { iconId: item.id }) %><span><%= item.label %></span></a>
         <% } %>
       </nav>
-      <form class="site-header__signout" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button class="button button--secondary" type="submit">Sign out</button>
-      </form>
+      <div class="workspace-rail__footer">
+        <div class="workspace-rail__role"><span>Signed in as</span><strong><%= currentUser.role === 'database_admin' ? 'Database administrator' : currentUser.role.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) %></strong></div>
+        <form class="site-header__signout" method="post" action="/logout">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="button button--secondary" type="submit">Sign out</button>
+        </form>
+      </div>
+    </aside>
+    <div class="workspace-stage">
+<% } else { %>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="/" aria-label="ARKTIESIIS home">
+        <img class="brand__seal" src="/images/arktiesiis-school-seal.png" alt="Official seal of Ark Technological Institute Education System Incorporated">
+        <span class="brand__copy">
+          <span class="brand__name">ARKTIESIIS</span>
+          <span class="brand__institution">Ark Technological Institute Education System Incorporated</span>
+          <span class="brand__branch">Lucena Branch</span>
+        </span>
+      </a>
     </div>
-  <% } %>
-</header>
+  </header>
+<% } %>

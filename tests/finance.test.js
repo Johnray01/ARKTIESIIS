@@ -117,6 +117,41 @@ test('finance student search is parameterized, escaped, bounded, and limited to 
   await assert.rejects(service.searchStudents('x'.repeat(101)), /100 printable characters or fewer/);
 });
 
+test('recent finance accounts are limited, ordered, finance-authorized, and expose only account identifiers', async () => {
+  const calls = [];
+  let authorized = true;
+  const pool = {
+    request() {
+      const values = {};
+      return {
+        input(name, _type, value) { values[name] = value; return this; },
+        async query(statement) {
+          calls.push({ statement, values: { ...values } });
+          return {
+            recordsets: [
+              [{ authorized: authorized ? 1 : 0 }],
+              [{ student_id: 22, student_no: 'DEMO-001', balance: '850.00' }]
+            ]
+          };
+        }
+      };
+    }
+  };
+  const service = createFinanceService({ getPool: async () => pool, sql: fakeSql() });
+  assert.deepEqual(await service.listRecentAccounts(7), [{ student_id: 22, student_no: 'DEMO-001', balance: '850.00' }]);
+  assert.equal(calls[0].values.actorId, 7);
+  assert.match(calls[0].statement, /role IN \('finance', 'database_admin'\).*is_active = 1|is_active = 1 AND role IN \('finance', 'database_admin'\)/s);
+  assert.match(calls[0].statement, /SELECT TOP \(8\)/);
+  assert.match(calls[0].statement, /ORDER BY a\.updated_at DESC, a\.id DESC/);
+  assert.match(calls[0].statement, /WHERE EXISTS/);
+  assert.doesNotMatch(calls[0].statement, /grades|enrollments|documents|birth_date|address/);
+
+  authorized = false;
+  calls.length = 0;
+  await assert.rejects(service.listRecentAccounts(7), /finance access is no longer active/i);
+  assert.equal(calls.length, 1);
+});
+
 test('account and transaction history read paths return only the selected student finance record', async () => {
   const calls = [];
   const pool = {
@@ -336,6 +371,18 @@ test('finance routes permit finance staff and database administrators and protec
   const calls = [];
   const financeService = {
     async searchStudents(searchTerm) { calls.push(['search', searchTerm]); return { students: [], searchTerm }; },
+    async getDashboardSummary(actorId) {
+      calls.push(['summary', actorId]);
+      return { account_count: 3, accounts_due_count: 1, accounts_settled_count: 1, accounts_credit_count: 1, charge_count: 4, payment_count: 3 };
+    },
+    async listRecentAccounts(actorId) {
+      calls.push(['recent', actorId]);
+      return [
+        { student_id: 22, student_no: 'DEMO-001', first_name: 'Demo', last_name: 'Learner One', financial_account_id: 30, balance: '850.00' },
+        { student_id: 23, student_no: 'DEMO-002', first_name: 'Demo', last_name: 'Learner Two', financial_account_id: 31, balance: '0.00' },
+        { student_id: 24, student_no: 'DEMO-003', first_name: 'Demo', last_name: 'Learner Three', financial_account_id: 32, balance: '-50.00' }
+      ];
+    },
     async getStudentAccount(studentId) {
       calls.push(['read', studentId]);
       return { student: { student_id: studentId, student_no: 'S-22', first_name: 'Alex', last_name: 'Kim', status: 'active' }, account: null, transactions: [] };
@@ -349,7 +396,14 @@ test('finance routes permit finance staff and database administrators and protec
     assert.equal(redirect.headers.get('location'), '/finance');
     const workspace = await fetch(`${baseUrl}/finance`, { headers: { cookie } });
     assert.equal(workspace.status, 200);
-    assert.match(await workspace.text(), /Finance workspace/);
+    const workspaceHtml = await workspace.text();
+    assert.match(workspaceHtml, /Finance workspace/);
+    assert.match(workspaceHtml, /Recently updated accounts/);
+    assert.match(workspaceHtml, /DEMO-001/);
+    assert.match(workspaceHtml, /Demo Learner Two/);
+    assert.match(workspaceHtml, /finance-status--settled/);
+    assert.match(workspaceHtml, /finance-status--credit/);
+    assert.ok(calls.some(([name]) => name === 'recent'));
     assert.equal(calls[0][0], 'search');
 
     const accountPage = await fetch(`${baseUrl}/finance/students/22`, { headers: { cookie } });
@@ -425,6 +479,7 @@ test('archived finance records stay readable without write controls and retain t
     const workspace = await fetch(`${baseUrl}/finance?search=Alex%20Kim`, { headers: { cookie } });
     const workspaceHtml = await workspace.text();
     assert.match(workspaceHtml, /href="\/finance\/students\/22\?search=Alex%20Kim"/);
+    assert.doesNotMatch(workspaceHtml, /Recently updated accounts/);
 
     const account = await fetch(`${baseUrl}/finance/students/22?search=Alex%20Kim`, { headers: { cookie } });
     const accountHtml = await account.text();

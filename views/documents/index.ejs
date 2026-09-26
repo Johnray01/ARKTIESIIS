@@ -55,8 +55,8 @@
   <section class="admin-section" aria-labelledby="history-title">
     <div class="admin-section__heading"><div><h2 id="history-title"><%= isStaff ? 'Document history' : 'Submission history' %></h2><p>Each corrected upload is stored as a separate submission.</p></div></div>
     <% if (documents.length) { %>
-      <div class="table-scroll" tabindex="0" aria-label="Document submission history">
-        <table class="admin-table">
+      <div class="table-scroll document-history-scroll" tabindex="0" aria-label="Document submission history">
+        <table class="admin-table document-history-table">
           <caption class="visually-hidden">Document submission history and current status</caption>
           <thead><tr><% if (isStaff) { %><th scope="col">Student</th><% } %><th scope="col">Document</th><th scope="col">File</th><th scope="col">Status</th><th scope="col">Submitted</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
           <tbody>
